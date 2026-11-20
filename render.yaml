@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: slopsound
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm ci && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: https://slopsound.onrender.com,tauri://localhost,http://tauri.localhost,http://localhost:1420
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: OAUTH_REDIRECT_TO
+        value: https://slopsound.onrender.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: http://127.0.0.1:43127/callback
+      - key: GOOGLE_WEB_REDIRECT_URI
+        value: https://slopsound.onrender.com/auth/google/return
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false

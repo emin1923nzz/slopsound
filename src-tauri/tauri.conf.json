@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SlopSound",
+  "version": "0.1.0",
+  "identifier": "com.slopsound.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SlopSound",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#100E16"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "publisher": "SlopSound",
+    "copyright": "© 2026 SlopSound",
+    "category": "SocialNetworking",
+    "shortDescription": "Konuş, oyna, takıl",
+    "longDescription": "SlopSound — sade, hızlı, kendi kimliği olan sohbet uygulaması. Sunucular, DM, ses odaları ve Sunlop asistanı.",
+    "windows": {
+      "nsis": {
+        "installMode": "both",
+        "languages": ["turkish", "english"],
+        "displayLanguageSelector": true,
+        "compression": "lzma",
+        "headerImage": "icons/installer-header.bmp",
+        "sidebarImage": "icons/installer-sidebar.bmp",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "startMenuFolder": "SlopSound"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://example.com/slopsound/{{target}}/{{arch}}/{{current_version}}"],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1OTAzNTUxQzdBM0E4QTIKUldTaXFLUEhVVFdRVlhhR3g3eCtiaktDQnVqU1VBT0dGbkNhUXNGVlZXcjVjVC9ZZGFjeGE1MnMK"
+    }
+  }
+}

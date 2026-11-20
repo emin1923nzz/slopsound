@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SlopCord - Bakımdayız</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Inter,Segoe UI,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+:root{--bg:#15151b;--panel:#1c1c25;--text:#ececf3;--muted:#a2a2b5;--accent:#7c5cff;--green:#2ee66b;--red:#ff5a5a;--yellow:#ffd93d}
+body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
+button{font-family:inherit;cursor:pointer;border:none}
+
+/* ÜST */
+.topbar{height:60px;background:#1c1c25;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;padding:0 20px;gap:10px;position:relative;z-index:10}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:38px;height:38px;background:var(--accent);border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:17px}
+.logo b{font-size:17px}
+.logo small{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.status-pill{margin-left:auto;display:flex;align-items:center;gap:8px;background:#2b2a1a;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:700;color:var(--yellow)}
+.status-pill i{width:9px;height:9px;background:var(--yellow);border-radius:50%;animation:blink 1.2s infinite;font-style:normal}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.7)}}
+
+/* ORTA */
+.center{flex:1;display:flex;align-items:center;justify-content:center;padding:20px;position:relative;overflow:hidden}
+.bg-circle{position:absolute;border-radius:50%;background:rgba(124,92,255,.07);animation:floatSlow 7s ease-in-out infinite}
+.bg-circle.c1{width:340px;height:340px;top:-90px;left:-90px}
+.bg-circle.c2{width:220px;height:220px;bottom:-60px;right:8%;animation-delay:1.2s}
+.bg-circle.c3{width:120px;height:120px;top:22%;right:20%;animation-delay:2s;background:rgba(255,217,61,.06)}
+@keyframes floatSlow{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
+.card{position:relative;z-index:2;width:min(620px,100%);background:#1c1c25;border:1px solid rgba(255,255,255,.07);border-radius:28px;padding:32px 28px 24px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+
+/* ANİMASYONLU SAHNE - TAMİR */
+.scene{height:168px;position:relative;display:flex;align-items:center;justify-content:center}
+.ground{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);width:260px;height:10px;background:#2b2b38;border-radius:999px}
+.robot{width:84px;height:84px;background:#2e2e3a;border-radius:22px;position:relative;z-index:2;animation:bob 2.6s ease-in-out infinite;display:flex;align-items:center;justify-content:center;flex-direction:column}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-8px) rotate(1deg)}}
+.robot .eyes{display:flex;gap:10px}
+.robot .eyes i{width:12px;height:12px;background:var(--yellow);border-radius:50%;font-style:normal;animation:eyeBlink 3s infinite}
+@keyframes eyeBlink{0%,92%,100%{transform:scaleY(1)}94%{transform:scaleY(.1)}}
+.robot .mouth{width:30px;height:6px;background:#4a4a58;border-radius:999px;margin-top:10px}
+.robot .arm{position:absolute;width:26px;height:10px;background:#4a4a58;border-radius:999px;top:36px}
+.robot .arm.left{left:-22px;transform:rotate(-20deg);animation:armL 2s ease-in-out infinite}
+.robot .arm.right{right:-22px;transform:rotate(20deg);animation:armR 2s ease-in-out infinite}
+@keyframes armL{0%,100%{transform:rotate(-20deg)}50%{transform:rotate(-50deg)}}
+@keyframes armR{0%,100%{transform:rotate(20deg)}50%{transform:rotate(50deg)}}
+.wrench{position:absolute;right:18%;top:18px;width:52px;height:52px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;animation:spin 3.5s linear infinite;z-index:2}
+@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.gear{position:absolute;left:16%;top:26px;width:36px;height:36px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;animation:spin 6s linear infinite reverse;z-index:2}
+.gear2{position:absolute;left:24%;bottom:44px;width:26px;height:26px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;animation:spin 4s linear infinite;z-index:2}
+.dots{margin-top:10px;display:flex;gap:6px;justify-content:center}
+.dots i{width:8px;height:8px;background:#4a4a58;border-radius:50%;animation:dotBounce 1.2s infinite}
+.dots i:nth-child(2){animation-delay:.2s}
+.dots i:nth-child(3){animation-delay:.4s}
+@keyframes dotBounce{0%,100%{transform:translateY(0);background:#4a4a58}50%{transform:translateY(-6px);background:var(--accent)}}
+
+/* YAZILAR */
+.card h1{font-size:28px;letter-spacing:-.5px;margin-top:4px}
+.card h1 span{color:var(--accent)}
+.card p{color:var(--muted);font-size:14px;line-height:1.6;margin:10px auto 0;max-width:460px}
+.card p b{color:#fff}
+.badge{display:inline-flex;gap:8px;align-items:center;background:#2b2a1a;color:var(--yellow);padding:7px 13px;border-radius:999px;font-size:12px;font-weight:800}
+.badge i{width:8px;height:8px;background:var(--yellow);border-radius:50%;animation:blink 1.2s infinite;font-style:normal}
+
+/* GERİ SAYIM */
+.countdown{display:flex;gap:10px;justify-content:center;margin:20px 0 6px}
+.cd{width:72px;background:#131318;border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:12px 6px}
+.cd b{font-size:24px;display:block;line-height:1}
+.cd small{font-size:11px;color:var(--muted);display:block;margin-top:4px}
+.cd.accent{background:#2b2344;border-color:rgba(124,92,255,.4)}
+.cd.accent b{color:var(--accent)}
+.progress{height:7px;background:#2b2b38;border-radius:999px;overflow:hidden;margin:14px auto 0;max-width:420px}
+.progress i{display:block;height:100%;background:var(--accent);border-radius:999px;width:0;transition:width 1s}
+.progress-text{font-size:12px;color:var(--muted);margin-top:8px}
+.progress-text b{color:#fff}
+
+/* NELER DEĞİŞİYOR */
+.changes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:20px;text-align:left}
+@media(max-width:560px){.changes{grid-template-columns:1fr}}
+.change{background:#23232f;border-radius:18px;padding:14px;transition:.2s}
+.change:hover{transform:translateY(-2px);background:#2a2a38}
+.change .n{width:30px;height:30px;background:#2e2e3a;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;margin-bottom:8px}
+.change.done .n{background:var(--green);color:#000}
+.change.doing .n{background:var(--accent);color:#fff}
+.change b{font-size:13px;display:block}
+.change small{font-size:12px;color:var(--muted);display:block;margin-top:4px;line-height:1.5}
+.change .bar{height:5px;background:#131318;border-radius:999px;margin-top:10px;overflow:hidden}
+.change .bar i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.change.done .bar i{background:var(--green)}
+
+/* BUTONLAR */
+.actions{display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+.btn{background:var(--accent);color:#fff;padding:13px 24px;border-radius:999px;font-weight:800;font-size:14px;transition:.2s;box-shadow:0 10px 24px rgba(124,92,255,.35)}
+.btn:hover{transform:translateY(-2px)}
+.btn.ghost{background:#2b2b38;color:#fff;box-shadow:none}
+.btn:disabled{opacity:.6;cursor:wait}
+.notify-row{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.notify-row input{width:240px;background:#131318;border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:12px 16px;color:#fff;font-size:13px;outline:none}
+.notify-row input:focus{border-color:var(--accent)}
+.notify-row input::placeholder{color:#777}
+.small{font-size:12px;color:var(--muted);margin-top:12px}
+.small b{color:#fff}
+
+/* ALT */
+.bottombar{padding:13px 20px;border-top:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);gap:12px;flex-wrap:wrap}
+.bottombar b{color:#fff}
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:24px;background:#fff;color:#000;padding:13px 20px;border-radius:999px;font-weight:700;font-size:14px;box-shadow:0 16px 36px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.3s;z-index:100;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><div class="logo-icon">S</div><div><b>SlopCord</b><small>Bakım • Prototip</small></div></div>
+  <div class="status-pill"><i></i> BAKIMDA • <span id="maintTime">00:00</span></div>
+</div>
+
+<div class="center">
+  <div class="bg-circle c1"></div><div class="bg-circle c2"></div><div class="bg-circle c3"></div>
+
+  <div class="card">
+    <div class="badge"><i></i> PLANLI BAKIM • 20 KASIM 2026</div>
+
+    <div class="scene">
+      <div class="gear">○</div>
+      <div class="gear2">○</div>
+      <div class="robot">
+        <div class="arm left"></div><div class="arm right"></div>
+        <div class="eyes"><i></i><i></i></div>
+        <div class="mouth"></div>
+      </div>
+      <div class="wrench">↻</div>
+      <div class="ground"></div>
+      <div class="dots" style="position:absolute;bottom:0;left:50%;transform:translateX(-50%)"><i></i><i></i><i></i></div>
+    </div>
+
+    <h1>SlopCord <span>bakımda</span></h1>
+    <p>Şu an sunucuları daha hızlı, daha yumuşak yapıyoruz. <b>Mesajların, sunucuların, arkadaşların silinmedi</b>, hepsi duruyor. Bakım bitince kaldığın yerden devam edeceksin.</p>
+
+    <div class="countdown">
+      <div class="cd"><b id="cdH">00</b><small>SAAT</small></div>
+      <div class="cd accent"><b id="cdM">14</b><small>DAKİKA</small></div>
+      <div class="cd"><b id="cdS">32</b><small>SANİYE</small></div>
+    </div>
+    <div class="progress"><i id="progressFill" style="width:68%"></i></div>
+    <div class="progress-text">Bakım ilerlemesi: <b id="progressText">%68</b> • Tahmini bitiş: <b>23:45</b></div>
+
+    <div class="changes">
+      <div class="change done"><div class="n">✓</div><b>Sunucu hızı</b><small>Mesajlar daha hızlı iletilecek.</small><div class="bar"><i style="width:100%"></i></div></div>
+      <div class="change doing"><div class="n">2</div><b>Yeni tasarım</b><small>Daha yumuşak, daha sade arayüz.</small><div class="bar"><i style="width:68%"></i></div></div>
+      <div class="change"><div class="n">3</div><b>Güvenlik</b><small>Hesap güvenliği güçlendiriliyor.</small><div class="bar"><i style="width:12%"></i></div></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="checkBtn" onclick="checkStatus()">Durumu Kontrol Et</button>
+      <button class="btn ghost" onclick="goBack()">Geri Dön</button>
+    </div>
+
+    <div class="notify-row">
+      <input id="notifyInput" placeholder="E-posta yaz, bakım bitince haber verelim">
+      <button class="btn ghost" onclick="notifyMe()">Haber Ver</button>
+    </div>
+    <div class="small">Bakım bitince otomatik yenilenecek. <b id="autoCheck">Otomatik kontrol: Açık</b> • <span style="color:var(--accent);cursor:pointer;font-weight:700" onclick="toggleAuto()">Kapat</span></div>
+  </div>
+</div>
+
+<div class="bottombar">
+  <div>Son güncelleme: <b>20 Kasım 2026 • 23:31</b></div>
+  <div>Durum: <b style="color:var(--yellow)">Bakımda</b> • Etkilenen: <b>Tüm sunucular</b></div>
+  <div>Destek: <b>destek@slopcord.gg</b></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let toastTimer, auto=true, total=14*60+32, elapsed=0, progress=68;
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2800); }
+function goBack(){ toast('Bakımdayız, geri dönülemiyor. Birazdan açılacak.'); }
+function checkStatus(){
+  const btn=document.getElementById('checkBtn'); btn.disabled=true; btn.textContent='Kontrol ediliyor...';
+  setTimeout(()=>{
+    btn.disabled=false; btn.textContent='Durumu Kontrol Et';
+    if(progress>=100){ toast('Bakım bitti. Sohbete dönülüyor...'); }
+    else { progress=Math.min(100, progress+4); updateProgress(); toast('Hala bakımdayız. İlerleme: %'+progress); }
+  },900);
+}
+function updateProgress(){
+  document.getElementById('progressFill').style.width=progress+'%';
+  document.getElementById('progressText').textContent='%'+progress;
+}
+function notifyMe(){
+  const v=document.getElementById('notifyInput').value.trim();
+  if(!v || !v.includes('@')){ toast('Geçerli bir e-posta yaz.'); return; }
+  toast('Tamam, bakım bitince '+v+' adresine haber vereceğiz.');
+  document.getElementById('notifyInput').value='';
+}
+function toggleAuto(){
+  auto=!auto;
+  document.getElementById('autoCheck').textContent='Otomatik kontrol: '+(auto?'Açık':'Kapalı');
+  toast(auto?'Otomatik kontrol açıldı':'Otomatik kontrol kapatıldı');
+}
+setInterval(()=>{
+  elapsed++;
+  const m=String(Math.floor(elapsed/60)).padStart(2,'0'); const s=String(elapsed%60).padStart(2,'0');
+  document.getElementById('maintTime').textContent=m+':'+s;
+  if(total>0) total--;
+  const h=String(Math.floor(total/3600)).padStart(2,'0'); const mm=String(Math.floor((total%3600)/60)).padStart(2,'0'); const ss=String(total%60).padStart(2,'0');
+  document.getElementById('cdH').textContent=h; document.getElementById('cdM').textContent=mm; document.getElementById('cdS').textContent=ss;
+  if(auto && total%30===0 && total>0){ progress=Math.min(100,progress+1); updateProgress(); }
+  if(total<=0){ document.getElementById('progressText').textContent='%100'; toast('Bakım bitti gibi görünüyor. Yenileniyor...'); total=14*60; }
+},1000);
+</script>
+</body>
+</html>

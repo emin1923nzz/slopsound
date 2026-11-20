@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SlopCord</title>
+<style>
+/* ============ TEMEL - YUMUŞAK ============ */
+*{margin:0;padding:0;box-sizing:border-box;font-family:Inter,Segoe UI,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+:root{
+  --bg:#15151b; --panel:#1c1c25; --panel2:#23232f; --chat:#1f1f29; --input:#2b2b38;
+  --text:#ececf3; --muted:#a2a2b5; --accent:#7c5cff; --accent-soft:rgba(124,92,255,.14);
+  --green:#2ee66b; --red:#ff5a5a; --yellow:#ffd93d;
+  --radius:20px; --radius-sm:14px; --radius-lg:26px;
+  --shadow:0 10px 30px rgba(0,0,0,.35); --shadow-soft:0 6px 20px rgba(0,0,0,.25);
+}
+body{height:100vh;overflow:hidden;background:var(--bg);color:var(--text)}
+.app{display:flex;height:100vh}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#34343f;border-radius:999px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+/* ============ SOL PANEL ============ */
+.left{width:292px;background:var(--panel);display:flex;flex-direction:column;flex-shrink:0;border-right:1px solid rgba(255,255,255,.05)}
+.left-top{padding:18px 16px 12px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;background:var(--accent);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;box-shadow:0 8px 20px rgba(124,92,255,.35)}
+.logo b{font-size:18px;letter-spacing:-.4px;line-height:1.1}
+.logo small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:2px}
+.tabs{display:flex;background:#131318;border-radius:999px;padding:5px;margin-top:16px;gap:5px}
+.tab{flex:1;border:none;background:none;color:var(--muted);padding:10px;border-radius:999px;font-weight:700;font-size:13px;transition:.25s}
+.tab:hover{color:#fff}
+.tab.active{background:var(--accent);color:white;box-shadow:0 6px 16px rgba(124,92,255,.4)}
+.server-title{padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between}
+.server-title b{font-size:15px}
+.server-title span{font-size:11px;background:#2a2a35;padding:5px 10px;border-radius:999px;color:var(--muted)}
+
+/* ============ KANALLAR - YUMUŞAK KART ============ */
+.channels-list{flex:1;overflow-y:auto;padding:6px 12px 14px}
+.cat{font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1px;padding:16px 10px 9px;display:flex;justify-content:space-between;align-items:center;text-transform:uppercase}
+.cat span{width:24px;height:24px;background:#2a2a35;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:14px;transition:.2s}
+.cat span:hover{background:var(--accent);transform:scale(1.1)}
+.ch-card{display:flex;align-items:center;gap:11px;padding:12px 12px;border-radius:var(--radius);cursor:pointer;background:transparent;border:1px solid transparent;transition:.22s;margin-bottom:7px}
+.ch-card:hover{background:#262633;transform:translateX(4px);box-shadow:var(--shadow-soft)}
+.ch-card.active{background:#2b2344;border-color:rgba(124,92,255,.45);box-shadow:0 8px 22px rgba(124,92,255,.18)}
+.ch-icon{width:40px;height:40px;background:#2e2e3a;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;color:#fff;transition:.2s}
+.ch-card.active .ch-icon{background:var(--accent);box-shadow:0 6px 16px rgba(124,92,255,.4)}
+.ch-main{flex:1;min-width:0}
+.ch-main b{font-size:14px;display:block;line-height:1.3}
+.ch-main small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;margin-top:1px}
+.ch-badge{background:var(--red);color:white;font-size:10px;font-weight:800;min-width:21px;height:21px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 4px 10px rgba(255,90,90,.4)}
+.ch-live{font-size:10px;background:rgba(46,230,107,.14);color:var(--green);padding:3px 8px;border-radius:999px;font-weight:800}
+.ch-voice{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:var(--radius-sm);background:#1a1a22;margin:4px 0 9px 52px;font-size:12px;color:var(--muted)}
+.ch-voice i{width:24px;height:24px;background:#2e2e3a;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:10px;font-weight:700}
+.voice-dot{width:9px;height:9px;background:var(--green);border-radius:50%;margin-left:auto;box-shadow:0 0 0 4px rgba(46,230,107,.18)}
+
+/* ============ DM ============ */
+.dm-search{background:#131318;border-radius:var(--radius-sm);display:flex;align-items:center;gap:9px;margin:0 12px 12px;padding:11px 13px;color:var(--muted);font-size:13px}
+.dm-search input{background:none;border:none;outline:none;color:white;width:100%;font-size:13px}
+.dm-search input::placeholder{color:#6d6f78}
+.dm-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--radius);cursor:pointer;transition:.2s;margin:0 4px 5px;border:1px solid transparent}
+.dm-item:hover{background:#262633;transform:translateX(3px)}
+.dm-item.active{background:#2b2344;border-color:rgba(124,92,255,.4)}
+.dm-item .avatar{width:42px;height:42px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;position:relative;flex-shrink:0;font-size:14px}
+.dm-item .avatar::after{content:'';position:absolute;right:0;bottom:0;width:12px;height:12px;background:var(--green);border:3px solid #1c1c25;border-radius:50%}
+.dm-item .avatar.off::after{background:#747f8d}
+.dm-main{flex:1;min-width:0}
+.dm-main b{font-size:14px;display:flex;gap:6px;align-items:center}
+.dm-main small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;margin-top:1px}
+.dm-time{font-size:10px;color:var(--muted)}
+.dm-unread{background:var(--red);color:white;font-size:10px;font-weight:800;min-width:21px;height:21px;border-radius:999px;display:flex;align-items:center;justify-content:center;padding:0 6px;margin-left:auto;box-shadow:0 4px 10px rgba(255,90,90,.4)}
+.ai-badge{font-size:9px;background:var(--accent);padding:3px 7px;border-radius:999px;color:white;font-weight:700}
+
+/* ============ SOL ALT SUNLOP - YUMUŞAK ============ */
+.sunlop-widget{margin:10px 14px 14px;padding:14px;border-radius:var(--radius-lg);cursor:pointer;background:#251f3f;border:1px solid rgba(124,92,255,.35);transition:.25s}
+.sunlop-widget:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(124,92,255,.25);border-color:var(--accent)}
+.sunlop-top{display:flex;gap:11px;align-items:center}
+.sunlop-avatar{width:44px;height:44px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;flex-shrink:0;position:relative;box-shadow:0 6px 16px rgba(124,92,255,.4)}
+.sunlop-avatar::after{content:'';position:absolute;right:-1px;bottom:-1px;width:13px;height:13px;background:var(--green);border:3px solid #251f3f;border-radius:50%}
+.sunlop-top b{font-size:14px}
+.sunlop-top small{font-size:11px;color:#c9b8ff;display:block;margin-top:1px}
+.sunlop-widget p{font-size:12.5px;color:#d8d0ff;margin-top:10px;line-height:1.5}
+.sunlop-widget .ask{margin-top:12px;background:rgba(255,255,255,.12);border-radius:999px;padding:8px 12px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+.sunlop-widget .ask span{color:#fff;font-weight:700}
+
+/* ============ ORTA CHAT ============ */
+.chat{flex:1;background:var(--chat);display:flex;flex-direction:column;min-width:0}
+.chat-header{height:60px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
+.chat-header .ch-icon{width:38px;height:38px}
+.chat-header small{color:var(--muted);font-size:12px}
+.messages{flex:1;overflow-y:auto;padding:16px 20px 190px 20px;scroll-behavior:smooth}
+.msg{display:flex;gap:13px;padding:11px 10px;border-radius:var(--radius)}
+.msg:hover{background:rgba(255,255,255,.03)}
+.msg .avatar{width:42px;height:42px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0;font-size:14px}
+.msg-body{flex:1;min-width:0}
+.msg-top{display:flex;gap:9px;align-items:baseline}
+.msg-top b{font-size:14px}
+.msg-top small{font-size:11px;color:var(--muted)}
+.msg-text{font-size:14.5px;line-height:1.6;margin-top:4px;word-break:break-word;color:#e2e2ec}
+.mention{background:rgba(124,92,255,.35);color:#d6ccff;padding:2px 6px;border-radius:6px;font-weight:700}
+.ai-msg{background:rgba(124,92,255,.12);border:1px solid rgba(124,92,255,.28);border-radius:var(--radius);padding:12px 14px}
+.tag{font-size:10px;background:var(--accent);color:white;padding:2px 6px;border-radius:999px}
+
+/* ============ SAĞ ÜYELER ============ */
+.members{width:268px;background:var(--panel);padding:0;overflow-y:auto;flex-shrink:0;border-left:1px solid rgba(255,255,255,.06)}
+.members-inner{padding:12px 10px 190px 10px}
+.members-search{background:#131318;border-radius:var(--radius-sm);display:flex;gap:9px;padding:10px 12px;margin:14px 10px 4px;color:var(--muted);font-size:13px}
+.members-search input{background:none;border:none;outline:none;color:white;width:100%;font-size:13px}
+.members-search input::placeholder{color:#6d6f78}
+.members h4{font-size:11px;color:var(--muted);text-transform:uppercase;padding:18px 10px 6px;display:flex;justify-content:space-between;letter-spacing:.5px}
+.members h4 .count{background:#131318;padding:3px 8px;border-radius:999px;font-size:10px;color:white}
+.member{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:var(--radius);cursor:pointer;transition:.2s}
+.member:hover{background:#2a2a38;transform:translateX(-3px);box-shadow:var(--shadow-soft)}
+.member .avatar{width:38px;height:38px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+.member-main{flex:1;min-width:0}
+.member-name{font-size:14px;font-weight:600}
+.member-activity{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.member-activity.playing{color:#57f287}
+.status-dot{width:10px;height:10px;background:var(--green);border-radius:50%;flex-shrink:0;box-shadow:0 0 0 3px rgba(46,230,107,.15)}
+.status-dot.idle{background:var(--yellow);box-shadow:0 0 0 3px rgba(255,217,61,.15)}
+.status-dot.dnd{background:var(--red);box-shadow:0 0 0 3px rgba(255,90,90,.15)}
+.status-dot.off{background:#747f8d;box-shadow:none}
+.mini-btn{background:#131318;border:none;color:white;width:28px;height:28px;border-radius:50%;font-size:12px;transition:.2s}
+.mini-btn:hover{background:var(--accent);transform:scale(1.1)}
+.member-actions{opacity:0;transition:.2s;display:flex;gap:5px}
+.member:hover .member-actions{opacity:1}
+
+/* ============ ALT DOCK - EN YUMUŞAK KISIM ============ */
+.bottom-dock{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:100;display:flex;flex-direction:column;align-items:center;gap:11px;width:min(940px,96vw)}
+.floating-input{width:100%;background:#2b2b38;border:1px solid rgba(255,255,255,.12);border-radius:999px;display:flex;align-items:center;gap:11px;padding:7px 9px 7px 16px;box-shadow:0 16px 36px rgba(0,0,0,.5);transition:.25s}
+.floating-input:focus-within{border-color:var(--accent);box-shadow:0 16px 36px rgba(124,92,255,.25)}
+.floating-input input{flex:1;background:none;border:none;outline:none;color:white;font-size:15px;padding:11px 0}
+.floating-input input::placeholder{color:#8a8e96}
+.send-btn{background:var(--accent);border:none;color:white;width:38px;height:38px;border-radius:50%;font-size:17px;flex-shrink:0;transition:.2s;box-shadow:0 6px 16px rgba(124,92,255,.4)}
+.send-btn:hover{transform:scale(1.08) rotate(-8deg)}
+.bottom-row{display:flex;align-items:center;gap:11px;width:100%;justify-content:center}
+.profile-card{background:#1c1c25;border:1px solid rgba(255,255,255,.12);border-radius:999px 22px 22px 999px;display:flex;align-items:center;gap:11px;padding:7px 12px 7px 7px;height:64px;box-shadow:0 16px 36px rgba(0,0,0,.5);cursor:pointer;position:relative;overflow:hidden;flex-shrink:0;transition:.25s}
+.profile-card:hover{border-color:rgba(124,92,255,.6);transform:translateY(-2px)}
+.profile-avatar{width:50px;height:50px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;position:relative;flex-shrink:0;box-shadow:0 6px 16px rgba(124,92,255,.35)}
+.profile-avatar .status{position:absolute;right:0;bottom:0;width:15px;height:15px;background:var(--green);border:3px solid #1c1c25;border-radius:50%}
+.profile-info{line-height:1.25;position:relative}
+.profile-name{font-size:14px;font-weight:700;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.profile-name .nitro{font-size:10px;background:var(--accent);padding:2px 7px;border-radius:999px}
+.profile-status{font-size:11px;color:#57f287;white-space:nowrap;max-width:135px;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.profile-xp{display:flex;align-items:center;gap:7px;margin-top:5px}
+.xp-bar{width:92px;height:6px;background:#131318;border-radius:999px;overflow:hidden}
+.xp-fill{width:68%;height:100%;background:var(--accent);border-radius:999px}
+.xp-text{font-size:10px;color:var(--muted);font-weight:700}
+.profile-btns{display:flex;gap:5px;position:relative}
+.profile-btn{width:34px;height:34px;border-radius:50%;border:none;background:#262633;color:white;font-size:14px;transition:.2s}
+.profile-btn:hover{background:var(--accent);transform:scale(1.12)}
+.profile-btn.active{background:var(--green);color:#000}
+.servers-bar{background:#1c1c25;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;height:64px;padding:0 20px 0 14px;border-radius:999px;box-shadow:0 16px 36px rgba(0,0,0,.5)}
+.servers-stack{display:flex;align-items:center}
+.server-icon{width:48px;height:48px;background:#2e2e3a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;cursor:pointer;position:relative;flex-shrink:0;border:2px solid #131318;margin-left:-14px;transition:.28s;box-shadow:0 6px 14px rgba(0,0,0,.4);color:#fff}
+.servers-stack .server-icon:first-child{margin-left:0}
+.servers-stack .server-icon:nth-child(1){z-index:6}.servers-stack .server-icon:nth-child(2){z-index:5}.servers-stack .server-icon:nth-child(3){z-index:4}.servers-stack .server-icon:nth-child(4){z-index:3}.servers-stack .server-icon:nth-child(5){z-index:2}
+.servers-bar:hover .server-icon{margin-left:9px}
+.servers-bar:hover .servers-stack .server-icon:first-child{margin-left:0}
+.server-icon:hover{border-radius:18px;background:var(--accent);transform:translateY(-9px) scale(1.14) !important;z-index:20 !important;box-shadow:0 14px 26px rgba(124,92,255,.45)}
+.server-icon.active{background:var(--accent);border-color:white}
+.divider{width:2px;height:28px;background:#35373c;border-radius:999px;margin-left:11px}
+.server-icon.add{color:var(--green);font-size:24px;margin-left:11px;z-index:1}
+.server-icon.add:hover{background:var(--green);color:white}
+.notif{position:absolute;top:-6px;right:-6px;min-width:21px;height:21px;padding:0 6px;background:var(--red);color:white;font-size:11px;font-weight:800;border-radius:999px;display:flex;align-items:center;justify-content:center;border:2px solid #131318;z-index:30;box-shadow:0 4px 10px rgba(255,90,90,.4)}
+.notif.dot{width:13px;height:13px;min-width:13px;padding:0}
+@media(max-width:1100px){.members{display:none}}
+@media(max-width:700px){.left{width:230px}.profile-status,.xp-text{display:none}.bottom-row{justify-content:flex-start;overflow-x:auto;padding-bottom:4px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SOL -->
+  <div class="left">
+    <div class="left-top">
+      <div class="logo"><div class="logo-icon">S</div><div><b>SlopCord</b><small>Bağımsız • Sade • Hızlı</small></div></div>
+      <div class="tabs">
+        <button class="tab active" id="tabServers" onclick="showPanel('servers')">Sunucular</button>
+        <button class="tab" id="tabDM" onclick="showPanel('dm')">DM • <span id="dmBadge">3</span></button>
+      </div>
+    </div>
+
+    <!-- SUNUCULAR -->
+    <div id="panelServers" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div class="server-title"><b id="serverName">SlopCord HQ</b><span>1.2k üye</span></div>
+      <div class="channels-list">
+        <div class="cat">Akış <span>+</span></div>
+        <div class="ch-card active" onclick="changeChannel(this,'genel','G','Genel Sohbet')"><div class="ch-icon">G</div><div class="ch-main"><b>genel</b><small>Ahmet: aaa seviye oldu bu ya</small></div><div class="ch-badge">3</div></div>
+        <div class="ch-card" onclick="changeChannel(this,'duyurular','D','Duyurular')"><div class="ch-icon">D</div><div class="ch-main"><b>duyurular</b><small>Yeni özellik: DM ayrı panel oldu</small></div></div>
+        <div class="ch-card" onclick="changeChannel(this,'sohbet','S','Sohbet')"><div class="ch-icon">S</div><div class="ch-main"><b>sohbet</b><small>Elif: bugün ne yapıyorsunuz?</small></div><div class="ch-live">CANLI</div></div>
+        <div class="cat">Üretim <span>+</span></div>
+        <div class="ch-card" onclick="changeChannel(this,'kod-paylasim','K','Kod Paylaşım')"><div class="ch-icon">K</div><div class="ch-main"><b>kod-paylaşım</b><small>Mehmet kod paylaştı</small></div></div>
+        <div class="ch-card" onclick="changeChannel(this,'tasarim','T','Tasarım')"><div class="ch-icon">T</div><div class="ch-main"><b>tasarım</b><small>Yeni logo fikirleri</small></div><div class="ch-badge">7</div></div>
+        <div class="cat">Ses Odaları <span>+</span></div>
+        <div class="ch-card" onclick="changeChannel(this,'Lobi','L','Lobi')"><div class="ch-icon">L</div><div class="ch-main"><b>Lobi</b><small>2 kişi içeride</small></div></div>
+        <div class="ch-voice"><i>A</i> Ahmet <div class="voice-dot"></div></div>
+        <div class="ch-card" onclick="changeChannel(this,'Oyun Odası','O','Oyun Odası')"><div class="ch-icon">O</div><div class="ch-main"><b>Oyun Odası</b><small>Valorant gecesi</small></div></div>
+        <div class="cat">Bilgi <span>+</span></div>
+        <div class="ch-card" onclick="changeChannel(this,'kurallar','K','Kurallar')"><div class="ch-icon">K</div><div class="ch-main"><b>kurallar</b><small>Önce bunları oku</small></div></div>
+        <div class="ch-card" onclick="changeChannel(this,'destek','D','Destek')"><div class="ch-icon">D</div><div class="ch-main"><b>destek</b><small>Yardım lazım mı?</small></div></div>
+      </div>
+    </div>
+
+    <!-- DM -->
+    <div id="panelDM" style="display:none;flex-direction:column;flex:1;min-height:0">
+      <div class="dm-search">Ara <input placeholder="DM ara..." oninput="filterDM(this.value)"></div>
+      <div style="flex:1;overflow-y:auto;padding:0 8px">
+        <div class="cat">Arkadaşlar</div>
+        <div class="dm-item active" data-name="sunlop" onclick="openDM(this,'Sunlop')">
+          <div class="avatar">S</div>
+          <div class="dm-main"><b>Sunlop <span class="ai-badge">AI</span></b><small>Sana nasıl yardım edebilirim?</small></div>
+          <div style="text-align:right"><div class="dm-time">Şimdi</div><div class="dm-unread">1</div></div>
+        </div>
+        <div class="dm-item" data-name="ahmet" onclick="openDM(this,'Ahmet')">
+          <div class="avatar">A</div>
+          <div class="dm-main"><b>Ahmet</b><small>tasarım efsane olmuş</small></div>
+          <div style="text-align:right"><div class="dm-time">12:42</div><div class="dm-unread">2</div></div>
+        </div>
+        <div class="dm-item" data-name="elif" onclick="openDM(this,'Elif')">
+          <div class="avatar">E</div>
+          <div class="dm-main"><b>Elif</b><small>yarın buluşalım mı?</small></div>
+          <div style="text-align:right"><div class="dm-time">11:20</div></div>
+        </div>
+        <div class="dm-item" data-name="mehmet" onclick="openDM(this,'Mehmet')">
+          <div class="avatar off">M</div>
+          <div class="dm-main"><b>Mehmet</b><small>oyuna gel</small></div>
+          <div style="text-align:right"><div class="dm-time">Dün</div></div>
+        </div>
+        <div class="cat">Grup DM</div>
+        <div class="dm-item" data-name="tayfa" onclick="openDM(this,'Oyun Tayfası')">
+          <div class="avatar">T</div>
+          <div class="dm-main"><b>Oyun Tayfası</b><small>Deniz: akşam Valorant?</small></div>
+          <div style="text-align:right"><div class="dm-time">10:05</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SOL ALT SUNLOP -->
+    <div class="sunlop-widget" onclick="askSunlop()">
+      <div class="sunlop-top">
+        <div class="sunlop-avatar">S</div>
+        <div><b>Sunlop</b><small>Çevrimiçi • Asistanın</small></div>
+        <span style="margin-left:auto;font-size:16px">→</span>
+      </div>
+      <p id="sunlopQuote">“Tasarım aaa seviye oldu, devam edelim mi?”</p>
+      <div class="ask"><span>Sunlop'a sor</span><span>→</span></div>
+    </div>
+  </div>
+
+  <!-- ORTA -->
+  <div class="chat">
+    <div class="chat-header"><div class="ch-icon" id="headerIcon">G</div><div><b id="channelTitle">genel</b><br><small id="channelDesc">Genel Sohbet • SlopCord HQ</small></div><span style="margin-left:auto;color:#888">📌 🔔</span></div>
+    <div class="messages" id="messages"></div>
+  </div>
+
+  <!-- SAĞ -->
+  <div class="members">
+    <div class="members-search">Ara <input placeholder="Üye ara..." oninput="filterMembers(this.value)"></div>
+    <div class="members-inner">
+      <h4>Yönetim <span class="count">2</span></h4>
+      <div class="member" data-name="ahmet"><div class="avatar">A</div><div class="member-main"><div class="member-name">Ahmet</div><div class="member-activity playing">Valorant oynuyor</div></div><div class="member-actions"><button class="mini-btn">💬</button></div><div class="status-dot"></div></div>
+      <div class="member" data-name="elif"><div class="avatar">E</div><div class="member-main"><div class="member-name">Elif</div><div class="member-activity">VS Code'da</div></div><div class="status-dot"></div></div>
+      <h4>AI <span class="count">1</span></h4>
+      <div class="member" data-name="sunlop"><div class="avatar" style="background:var(--accent)">S</div><div class="member-main"><div class="member-name">Sunlop</div><div class="member-activity playing">Sana yardım ediyor</div></div><div class="member-actions"><button class="mini-btn" onclick="askSunlop()">💬</button></div><div class="status-dot"></div></div>
+      <h4>Çevrimiçi <span class="count">3</span></h4>
+      <div class="member" data-name="senin adin"><div class="avatar">S</div><div class="member-main"><div class="member-name">senin_adin</div><div class="member-activity playing">SlopCord tasarlıyor</div></div><div class="status-dot"></div></div>
+      <div class="member" data-name="deniz"><div class="avatar">D</div><div class="member-main"><div class="member-name">Deniz</div><div class="member-activity">Yayında</div></div><div class="status-dot dnd"></div></div>
+      <div class="member" data-name="yagmur"><div class="avatar">Y</div><div class="member-main"><div class="member-name">Yağmur</div><div class="member-activity">Müzik dinliyor</div></div><div class="status-dot"></div></div>
+      <h4>Çevrimdışı <span class="count">2</span></h4>
+      <div class="member" style="opacity:.55" data-name="zeynep"><div class="avatar">Z</div><div class="member-main"><div class="member-name">Zeynep</div><div class="member-activity">2 saat önce</div></div><div class="status-dot off"></div></div>
+      <div class="member" style="opacity:.55" data-name="kerem"><div class="avatar">K</div><div class="member-main"><div class="member-name">Kerem</div><div class="member-activity">Dün</div></div><div class="status-dot off"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ALT DOCK -->
+<div class="bottom-dock">
+  <div class="floating-input">
+    <span>+</span>
+    <input id="msgInput" placeholder="genel kanalına mesaj gönder • Sunlop yaz, cevap versin" onkeydown="if(event.key==='Enter') sendMsg()">
+    <span onclick="askSunlop()" style="cursor:pointer" title="Sunlop">S</span>
+    <button class="send-btn" onclick="sendMsg()">→</button>
+  </div>
+  <div class="bottom-row">
+    <div class="profile-card" onclick="toggleStatus(this)">
+      <div class="profile-avatar">S<span class="status" id="myStatusDot"></span></div>
+      <div class="profile-info">
+        <div class="profile-name">senin_adin <span class="nitro">NITRO</span></div>
+        <div class="profile-status" id="myStatusText">Çevrimiçi • SlopCord tasarlıyor</div>
+        <div class="profile-xp"><div class="xp-bar"><div class="xp-fill"></div></div><span class="xp-text">LVL 12 • %68</span></div>
+      </div>
+      <div class="profile-btns">
+        <button class="profile-btn active" onclick="event.stopPropagation(); toggleBtn(this)">🎤</button>
+        <button class="profile-btn" onclick="event.stopPropagation(); toggleBtn(this)">🎧</button>
+        <button class="profile-btn" onclick="event.stopPropagation(); alert('Ayarlar yakında')">⚙️</button>
+      </div>
+    </div>
+    <div class="servers-bar">
+      <div class="servers-stack">
+        <div class="server-icon active" onclick="selectServer(this,'SlopCord HQ')">S<span class="notif">3</span></div>
+        <div class="server-icon" onclick="selectServer(this,'Yazılımcılar')">Y</div>
+        <div class="server-icon" onclick="selectServer(this,'Oyun Tayfa')">O<span class="notif">12</span></div>
+        <div class="server-icon" onclick="selectServer(this,'Müzik')">M<span class="notif dot"></span></div>
+        <div class="server-icon" onclick="selectServer(this,'Tasarım')">T<span class="notif">99+</span></div>
+      </div>
+      <div class="divider"></div>
+      <div class="server-icon add" onclick="addServer(this)">+</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentChannel='genel', isDM=false, currentDM='Sunlop';
+const data={
+  genel:[
+    {u:'Ahmet',t:'10:42',m:'Herkes hoş geldi! <span class="mention">@herkes</span> Burası yeni SlopCord'},
+    {u:'Elif',t:'10:45',m:'Artık Discord kopyası değil, kendi tarzımız var!'},
+    {u:'Sunlop',t:'10:46',m:'Merhaba! Ben Sunlop. Bana Sunlop yazarsan yardım ederim. DM\'den de konuşabiliriz.',ai:true},
+    {u:'Mehmet',t:'10:47',m:'<span class="mention">Sunlop</span> bu tasarım nasıl?'},
+    {u:'Sunlop',t:'10:47',m:'AAA seviye. Katmanlı sunucular + DM + kartlı kanallar.',ai:true},
+    {u:'Ahmet',t:'10:50',m:'Şimdi her şey yumuşak, köşe kalmadı'},
+    {u:'Elif',t:'10:51',m:'Aynen, çok daha rahat görünüyor'},
+  ],
+  duyurular:[{u:'Sunlop',t:'09:00',m:'Yeni güncelleme: DM ayrı panel oldu, kanallar kartlı oldu!',ai:true}],
+  sohbet:[{u:'Elif',t:'11:20',m:'Bugün ne yapıyorsunuz?'}],
+  'kod-paylasim':[{u:'Mehmet',t:'12:00',m:'Bu kod artık tamamen bağımsız, tek dosya!'}],
+  'tasarim':[{u:'Elif',t:'13:00',m:'Yeni logo fikirleri bekliyorum'}],
+  'kurallar':[{u:'Ahmet',t:'09:00',m:'1. Saygılı ol. 2. Spam yok. 3. Eğlen.'}],
+  'destek':[{u:'Sunlop',t:'09:00',m:'Yardım lazım mı? Bana yaz.',ai:true}],
+};
+const dmData={
+  'Sunlop':[{u:'Sunlop',t:'Şimdi',m:'Selam! Ben Sunlop. Tasarım, kod, fikir ne istersen sor. Buradayım, hep sol altta duracağım.',ai:true}],
+  'Ahmet':[{u:'Ahmet',t:'12:42',m:'tasarım efsane olmuş'}],
+  'Elif':[{u:'Elif',t:'11:20',m:'yarın buluşalım mı?'}],
+  'Mehmet':[{u:'Mehmet',t:'Dün',m:'oyuna gel'}],
+  'Oyun Tayfası':[{u:'Deniz',t:'10:05',m:'akşam Valorant?'}],
+};
+function render(){
+  const box=document.getElementById('messages');
+  const list = isDM ? (dmData[currentDM]||[]) : (data[currentChannel]||[{u:'Sunlop',t:'Şimdi',m:'Bu kanal boş, ilk mesajı sen yaz!',ai:true}]);
+  box.innerHTML=list.map(m=>`<div class="msg"><div class="avatar">${m.u[0]}</div><div class="msg-body"><div class="msg-top"><b>${m.u}</b>${m.ai?'<span class="tag">AI</span>':''}<small>${m.t}</small></div><div class="msg-text ${m.ai?'ai-msg':''}">${m.m}</div></div></div>`).join('');
+  box.scrollTop=box.scrollHeight;
+}
+function changeChannel(el,name,icon,desc){
+  isDM=false;
+  document.querySelectorAll('.ch-card').forEach(c=>c.classList.remove('active')); el.classList.add('active');
+  currentChannel=name; document.getElementById('channelTitle').textContent=name;
+  document.getElementById('headerIcon').textContent=icon; document.getElementById('channelDesc').textContent=desc+' • SlopCord HQ';
+  document.getElementById('msgInput').placeholder=`${name} kanalına mesaj gönder • Sunlop yaz, cevap versin`;
+  render();
+}
+function showPanel(type){
+  document.getElementById('tabServers').classList.toggle('active',type==='servers');
+  document.getElementById('tabDM').classList.toggle('active',type==='dm');
+  document.getElementById('panelServers').style.display = type==='servers'?'flex':'none';
+  document.getElementById('panelDM').style.display = type==='dm'?'flex':'none';
+  if(type==='dm'){ document.getElementById('dmBadge').textContent='0'; }
+}
+function openDM(el,name){
+  isDM=true; currentDM=name;
+  document.querySelectorAll('.dm-item').forEach(d=>d.classList.remove('active')); el.classList.add('active');
+  const badge=el.querySelector('.dm-unread'); if(badge) badge.remove();
+  document.getElementById('channelTitle').textContent=name;
+  document.getElementById('headerIcon').textContent=name[0]; document.getElementById('channelDesc').textContent='DM';
+  document.getElementById('msgInput').placeholder=`${name} kişisine mesaj gönder...`;
+  render();
+}
+function selectServer(el,name){
+  document.querySelectorAll('.server-icon').forEach(s=>s.classList.remove('active')); el.classList.add('active');
+  document.getElementById('serverName').textContent=name; showPanel('servers');
+  const n=el.querySelector('.notif'); if(n) n.remove();
+}
+function addServer(el){
+  const name=prompt('Yeni sunucu adı:'); if(!name) return;
+  const stack=document.querySelector('.servers-stack'); const div=document.createElement('div');
+  div.className='server-icon'; div.innerHTML=name[0].toUpperCase()+'<span class="notif dot"></span>'; div.onclick=()=>selectServer(div,name); stack.appendChild(div);
+}
+function sendMsg(){
+  const inp=document.getElementById('msgInput'); if(!inp.value.trim()) return;
+  const text=inp.value; const time=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
+  const store = isDM ? dmData : data; const key = isDM ? currentDM : currentChannel;
+  if(!store[key]) store[key]=[]; store[key].push({u:'senin_adin',t:time,m:text}); inp.value=''; render();
+  if(text.toLowerCase().includes('sunlop') || (isDM && currentDM==='Sunlop')){
+    setTimeout(()=>{
+      const replies=[
+        'Anladım, onu hemen hallederiz. Başka ne ekleyelim?',
+        'Bu fikir aaa seviye. Sol alta da ekledim, DM de ayrı artık.',
+        'Bence tam istediğin gibi oldu.',
+        'SlopCord artık Discord kopyası değil, kendi kimliği var.',
+        'Yazdığını kaydettim. Devam et, ben buradayım.',
+        'Yumuşak hali çok daha iyi oldu, değil mi?',
+      ];
+      store[key].push({u:'Sunlop',t:new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}),m:replies[Math.floor(Math.random()*replies.length)],ai:true});
+      render();
+    },900);
+  }
+}
+function askSunlop(){
+  showPanel('dm');
+  const sunlop=document.querySelector('[data-name="sunlop"]'); if(sunlop) openDM(sunlop,'Sunlop');
+  document.getElementById('sunlopQuote').textContent='“DM\'deyim, sor bakalım ne lazım?”';
+  document.getElementById('msgInput').focus();
+}
+function filterMembers(q){ q=q.toLowerCase().trim(); document.querySelectorAll('.member').forEach(m=>{ m.style.display=(!q||(m.dataset.name||'').toLowerCase().includes(q))?'flex':'none'; }); }
+function filterDM(q){ q=q.toLowerCase().trim(); document.querySelectorAll('.dm-item').forEach(m=>{ m.style.display=(!q||(m.dataset.name||'').toLowerCase().includes(q))?'flex':'none'; }); }
+function toggleBtn(b){ b.classList.toggle('active'); }
+let si=0; const sts=[{d:'#2ee66b',t:'Çevrimiçi • SlopCord tasarlıyor'},{d:'#ffd93d',t:'Boşta • Birazdan dönerim'},{d:'#ff4d4d',t:'Rahatsız Etme • Odaklandım'},{d:'#747f8d',t:'Görünmez • Gizli mod'}];
+function toggleStatus(){ si=(si+1)%sts.length; document.getElementById('myStatusDot').style.background=sts[si].d; document.getElementById('myStatusText').textContent=sts[si].t; }
+render();
+</script>
+</body>
+</html>
