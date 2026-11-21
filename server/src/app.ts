@@ -55,7 +55,13 @@ function cookieOptions(expires: Date) {
 export function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
 
-  void app.register(cors, { origin: corsOrigins, credentials: true });
+  void app.register(cors, {
+    origin: (origin, callback) => {
+      if (!origin || origin === "null" || corsOrigins.includes(origin)) callback(null, origin || true);
+      else callback(new Error("Origin not allowed"), false);
+    },
+    credentials: true,
+  });
   void app.register(cookie);
   void app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 

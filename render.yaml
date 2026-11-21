@@ -19,7 +19,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        value: https://slopsound.onrender.com,tauri://localhost,http://tauri.localhost,http://localhost:1420
+        value: https://slopsound.onrender.com,tauri://localhost,http://tauri.localhost,http://localhost:1420,null
       - key: COOKIE_SAMESITE
         value: none
       - key: OAUTH_REDIRECT_TO
