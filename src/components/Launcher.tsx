@@ -23,7 +23,7 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
   const username = useApp((s) => s.user?.username ?? "Misafir");
   const authLoading = useApp((s) => s.authLoading);
   const bootstrapLoading = useApp((s) => s.bootstrapLoading);
-  const [version, setVersion] = useState("0.1.4");
+  const [version, setVersion] = useState("0.1.5");
   const [updateState, setUpdateState] = useState<UpdateState>("checking");
   const [update, setUpdate] = useState<Update | null>(null);
   const [installing, setInstalling] = useState(false);
