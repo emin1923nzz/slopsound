@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
+import { Mic, MicOff, MonitorUp, MonitorOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { useCallStore } from "@/lib/callStore";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,8 @@ export function CallOverlay() {
   const activeCall = useCallStore((s) => s.activeCall);
   const localStream = useCallStore((s) => s.localStream);
   const remoteStream = useCallStore((s) => s.remoteStream);
+  const localScreenStream = useCallStore((s) => s.localScreenStream);
+  const screenSharing = useCallStore((s) => s.screenSharing);
   const micEnabled = useCallStore((s) => s.micEnabled);
   const cameraEnabled = useCallStore((s) => s.cameraEnabled);
   const error = useCallStore((s) => s.error);
@@ -45,6 +47,7 @@ export function CallOverlay() {
   const endCall = useCallStore((s) => s.endCall);
   const toggleMic = useCallStore((s) => s.toggleMic);
   const toggleCamera = useCallStore((s) => s.toggleCamera);
+  const toggleScreenShare = useCallStore((s) => s.toggleScreenShare);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -93,9 +96,9 @@ export function CallOverlay() {
                 )}
                 <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/70 to-transparent p-3">
                   <span className="rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-bold backdrop-blur">{call.peer.username}</span>
-                  {localStream && (
+                  {(screenSharing ? localScreenStream : localStream) && (
                     <div className="h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-white/15 bg-ink shadow-lg">
-                      <StreamVideo stream={localStream} muted className="h-full w-full object-cover" />
+                      <StreamVideo stream={(screenSharing ? localScreenStream : localStream)!} muted className="h-full w-full object-cover" />
                     </div>
                   )}
                 </div>
@@ -126,6 +129,9 @@ export function CallOverlay() {
                   </button>
                   <button aria-label={cameraEnabled ? "Kamerayı kapat" : "Kamerayı aç"} onClick={toggleCamera} disabled={!isVideo} className="icon-btn disabled:opacity-40" data-active={cameraEnabled} data-off={!cameraEnabled && isVideo}>
                     {cameraEnabled ? <Video size={17} /> : <VideoOff size={17} />}
+                  </button>
+                  <button aria-label={screenSharing ? "Paylaşımı durdur" : "Ekranı paylaş"} onClick={() => void toggleScreenShare()} className="icon-btn" data-active={screenSharing} data-off={!screenSharing}>
+                    {screenSharing ? <MonitorOff size={17} /> : <MonitorUp size={17} />}
                   </button>
                   <div className="mx-1 h-6 w-px bg-white/10" />
                   <button aria-label="Aramayı bitir" onClick={endCall} className="grid h-9 w-9 place-items-center rounded-full bg-danger text-white transition hover:scale-110"><PhoneOff size={16} /></button>

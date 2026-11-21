@@ -62,6 +62,9 @@ export const api = {
   createDM: (username: string) => request<{ id: string; name: string }>("/dms", {
     method: "POST", body: JSON.stringify({ username }),
   }),
+  createGroupDM: (name: string, memberIds: string[]) => request<{ id: string; name: string }>("/dms/groups", {
+    method: "POST", body: JSON.stringify({ name, memberIds }),
+  }),
   friendRequest: (username: string) => request<{ ok: boolean }>("/friends/request", {
     method: "POST", body: JSON.stringify({ username }),
   }),

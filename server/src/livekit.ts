@@ -8,7 +8,7 @@ import { requireRole } from "./rbac.js";
 export async function canAccessChannel(userId: string, channelId: string) {
   const [channel] = await db.select().from(channels).where(eq(channels.id, channelId)).limit(1);
   if (!channel) return null;
-  if (channel.type === "dm") {
+  if (channel.type === "dm" || channel.type === "group") {
     const [member] = await db.select().from(channelMembers)
       .where(and(eq(channelMembers.channelId, channelId), eq(channelMembers.userId, userId)))
       .limit(1);

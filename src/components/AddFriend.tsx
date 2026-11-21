@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, UserPlus, Link2, Ticket, Inbox, Copy, RefreshCw, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { INVITE_BASE_URL } from "@/lib/config";
+import { copyText } from "@/lib/native";
 import { cn } from "@/lib/utils";
 import { Badge, Button, Input, SectionTitle, Tabs, TabsContent, TabsList, TabsTrigger } from "./ui";
 import { SlopAvatar } from "./SlopAvatar";
@@ -124,7 +126,7 @@ function CreateInvite() {
   const [code, setCode] = useState("");
   const createInvite = useApp((s) => s.createInvite);
   const activeServer = useApp((s) => s.activeServer);
-  const link = code ? `https://slopsound.gg/${code}` : "";
+  const link = code ? `${INVITE_BASE_URL}${code}` : "";
   useEffect(() => {
     if (activeServer && !code) void regenerate();
   }, [activeServer]);
@@ -146,7 +148,7 @@ function CreateInvite() {
             <SectionTitle>Davet linkin</SectionTitle>
             <p className="mt-2 break-all font-display text-[15px] font-extrabold text-brand">{link || "Davet oluşturuluyor..."}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button size="sm" disabled={!code} onClick={() => { navigator.clipboard?.writeText(link); toast.success("Link kopyalandı"); }}><Copy size={13} /> Linki Kopyala</Button>
+              <Button size="sm" disabled={!code} onClick={() => { void copyText(link).then(() => toast.success("Link kopyalandı")).catch(() => toast.error("Link kopyalanamadı")); }}><Copy size={13} /> Linki Kopyala</Button>
               <Button size="sm" variant="outline" onClick={() => void regenerate()}><RefreshCw size={13} /> Yeni Kod Üret</Button>
             </div>
           </div>

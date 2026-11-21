@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import {
   Hash, Volume2, Megaphone, Pin, Bell, Search, Plus, Smile,
   ArrowUp, ArrowDown, Sparkles, Phone, Video, MoreHorizontal, Mic, Square,
-  Reply, Copy, Trash2, X,
+  Reply, Copy, Trash2, X, FileText, Download, Forward,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
@@ -15,15 +15,56 @@ import type { Attachment, Message } from "@/lib/data";
 import { formatDuration, useAudio } from "@/lib/audio";
 import { openExternalHttp } from "@/lib/native";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, Tooltip, TooltipContent, TooltipTrigger } from "./ui";
+import { Button, Dialog, DialogContent, Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { BadgeChips } from "./BadgeChips";
 import { SlopAvatar } from "./SlopAvatar";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = [
   "image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm",
-  "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg",
+  "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "application/pdf",
+  "application/zip", "application/x-zip-compressed", "application/json",
+  "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain", "text/csv", "text/markdown", "application/octet-stream",
 ];
+const BLOCKED_ATTACHMENT_MIMES = new Set([
+  "text/html", "image/svg+xml", "application/javascript", "text/javascript", "application/x-javascript",
+]);
+const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
+  "html", "htm", "svg", "js", "jsx", "ts", "tsx", "php", "exe", "bat", "cmd", "ps1", "sh", "jar", "msi", "scr", "vbs", "hta",
+]);
+
+function attachmentKind(file: File): "image" | "video" | "audio" | "file" {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function isAllowedAttachment(file: File): boolean {
+  const mime = file.type || "application/octet-stream";
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (BLOCKED_ATTACHMENT_MIMES.has(mime) || BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)) return false;
+  return ALLOWED_ATTACHMENT_TYPES.includes(mime) || mime.startsWith("application/") || mime.startsWith("text/");
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function downloadAttachment(attachment: Attachment) {
+  const link = document.createElement("a");
+  link.href = attachment.url;
+  link.download = attachment.name || "dosya";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 
 function prepareImage(file: File): Promise<Attachment> {
   return new Promise((resolve, reject) => {
@@ -79,6 +120,44 @@ function readMedia(file: File, kind: "video" | "audio"): Promise<Attachment> {
   });
 }
 
+function readFile(file: File): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      kind: "file",
+      mime: file.type || "application/octet-stream",
+      name: file.name,
+      url: String(reader.result),
+      bytes: file.size,
+    });
+    reader.onerror = () => reject(new Error("Dosya okunamadı"));
+    reader.readAsDataURL(file);
+  });
+}
+
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉", "👀", "🙏", "💯", "😅", "🤝", "✨", "😎"];
+
+function EmojiPicker({ onSelect, children }: { onSelect: (emoji: string) => void; children: React.ReactNode }) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" side="top" sideOffset={8} className="glass z-[170] grid grid-cols-6 gap-1 rounded-2xl p-2 shadow-float outline-none">
+          {QUICK_EMOJIS.map((emoji) => (
+            <DropdownMenu.Item
+              key={emoji}
+              onSelect={() => onSelect(emoji)}
+              className="grid h-8 w-8 cursor-pointer place-items-center rounded-xl text-[16px] outline-none data-[highlighted]:bg-white/[.1]"
+            >
+              {emoji}
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 function MediaLightbox({ url, onClose }: { url: string; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -121,7 +200,7 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
   const title = isDM ? dm?.name ?? "DM" : channel?.name ?? "genel";
   const description = isDM ? dm?.preview ?? "" : channel?.description ?? "";
   const Icon = channel?.type === "voice" ? Volume2 : channel?.type === "announcement" ? Megaphone : Hash;
-  const callDisabled = isDM ? !activeDM || Boolean(dm?.ai) : true;
+  const callDisabled = isDM ? !activeDM || Boolean(dm?.ai) || Boolean(dm?.group) : true;
   const conversationId = isDM ? activeDM : activeChannel;
   const muted = Boolean(conversationId && mutedChannelIds.includes(conversationId));
   const pinned = useMemo(
@@ -143,7 +222,7 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
 
   function startAudio() {
     if (isDM) {
-      if (activeDM && !dm?.ai) startCall(activeDM, "audio");
+      if (activeDM && !dm?.ai && !dm?.group) startCall(activeDM, "audio");
       return;
     }
     const voiceId = voiceChannelId ?? channelGroups.flatMap((g) => g.channels).find((c) => c.type === "voice")?.id;
@@ -151,7 +230,7 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
   }
 
   function startVideo() {
-    if (activeDM && !dm?.ai) startCall(activeDM, "video");
+    if (activeDM && !dm?.ai && !dm?.group) startCall(activeDM, "video");
   }
 
   return (
@@ -213,9 +292,10 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
 type MessageRowProps = {
   message: Message;
   onOpenMedia: (url: string) => void;
+  onForward: (message: Message) => void;
 };
 
-const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRowProps) {
+const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }: MessageRowProps) {
   const reactToMessage = useApp((s) => s.reactToMessage);
   const setReplyTo = useApp((s) => s.setReplyTo);
   const deleteMessage = useApp((s) => s.deleteMessage);
@@ -225,6 +305,8 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
   const [menuOpen, setMenuOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
   const hasAudioAttachment = Boolean(message.attachments?.some((attachment) => attachment.kind === "audio"));
+  const quoteLines = message.text.split("\n").filter((line) => line.startsWith("> "));
+  const bodyText = message.text.split("\n").filter((line) => !line.startsWith("> ")).join("\n").trim();
   const drag = useRef({ active: false, startX: 0, startY: 0, moved: false, x: 0 });
   const longPress = useRef<number | undefined>(undefined);
 
@@ -247,7 +329,7 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
         setDragX(0);
         drag.current.x = 0;
       }
-    }, 400);
+    }, 250);
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
@@ -306,7 +388,12 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
               <BadgeChips badges={message.badges} compact />
               <span className="text-[10px] text-muted/70">{message.time}</span>
             </div>
-            <p className={cn("mt-0.5 text-[13px] leading-relaxed text-paper/85", message.ai && "text-paper")}>{message.text}</p>
+            {quoteLines.length > 0 && (
+              <div className="reply-quote mt-1 border-l-2 border-brand/60 pl-2 text-[11px] text-muted">
+                {quoteLines.map((line, index) => <p key={index} className="truncate">{line.slice(2)}</p>)}
+              </div>
+            )}
+            <p className={cn("mt-0.5 text-[13px] leading-relaxed text-paper/85", message.ai && "text-paper")}>{bodyText}</p>
             {message.attachments?.map((attachment, index) => {
               if (attachment.kind === "image") {
                 return (
@@ -339,6 +426,23 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
                     />
                     <p className="mt-1 break-words text-[9.5px] text-muted">Sesli mesaj • {formatDuration(message.duration ?? 0)}</p>
                   </div>
+                );
+              }
+              if (attachment.kind === "file") {
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => downloadAttachment(attachment)}
+                    className="mt-2 flex max-w-[320px] items-center gap-2 rounded-2xl border border-white/10 bg-white/[.05] px-3 py-2 text-left transition hover:border-brand/50"
+                  >
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand/15 text-brand"><FileText size={16} /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11.5px] font-bold">{attachment.name}</span>
+                      <span className="block text-[9.5px] text-muted">{formatBytes(attachment.bytes)} • İndirmek için dokun</span>
+                    </span>
+                    <Download size={14} className="shrink-0 text-muted" />
+                  </button>
                 );
               }
               return (
@@ -382,7 +486,10 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
             {menuOpen && (
               <div className="ios-menu" onClick={(event) => event.stopPropagation()}>
                 <button onClick={reply}><Reply size={14} className="text-brand" /> Yanıtla</button>
-                <button onClick={() => { void reactToMessage(message.id, "👍"); setMenuOpen(false); }}><Smile size={14} className="text-warn" /> Tepki ekle</button>
+                <EmojiPicker onSelect={(emoji) => { void reactToMessage(message.id, emoji); setMenuOpen(false); }}>
+                  <button><Smile size={14} className="text-warn" /> Tepki ekle</button>
+                </EmojiPicker>
+                <button onClick={() => { onForward(message); setMenuOpen(false); }}><Forward size={14} className="text-lime" /> İlet</button>
                 <button onClick={() => { togglePin(message.id); setMenuOpen(false); toast.success(pinned ? "Sabitleme kaldırıldı" : "Mesaj sabitlendi"); }}><Pin size={14} className="text-lime" /> {pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
                 <button onClick={copyText}><Copy size={14} className="text-muted" /> Metni kopyala</button>
                 {message.own && (
@@ -393,15 +500,18 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia }: MessageRow
           </div>
         </div>
       </div>
-      <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition group-hover:opacity-100">
-        <button onClick={reply} className="icon-btn h-7 w-7"><Reply size={14} /></button>
-        <button onClick={() => void reactToMessage(message.id, "👍")} className="icon-btn h-7 w-7"><Smile size={14} /></button>
+      <div className="flex shrink-0 items-start gap-0.5">
+        <button onClick={reply} className="icon-btn h-7 w-7" aria-label="Yanıtla"><Reply size={14} /></button>
+        <EmojiPicker onSelect={(emoji) => void reactToMessage(message.id, emoji)}>
+          <button className="icon-btn h-7 w-7" aria-label="Tepki ekle"><Smile size={14} /></button>
+        </EmojiPicker>
+        <button onClick={() => onForward(message)} className="icon-btn h-7 w-7" aria-label="İlet"><Forward size={14} /></button>
       </div>
     </div>
   );
 });
 
-function MessageList({ query, onOpenMedia }: { query: string; onOpenMedia: (url: string) => void }) {
+function MessageList({ query, onOpenMedia, onForward }: { query: string; onOpenMedia: (url: string) => void; onForward: (message: Message) => void }) {
   const allMessages = useApp((s) => s.messages);
   const sidebarTab = useApp((s) => s.sidebarTab);
   const activeDM = useApp((s) => s.activeDM);
@@ -449,7 +559,7 @@ function MessageList({ query, onOpenMedia }: { query: string; onOpenMedia: (url:
     if (atBottomRef.current && messages.length) {
       virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
     }
-  }, [lastMessageId, totalSize, messages.length, virtualizer]);
+  }, [lastMessageId, conversationId, virtualizer]);
 
   function jumpToLatest() {
     virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
@@ -462,7 +572,7 @@ function MessageList({ query, onOpenMedia }: { query: string; onOpenMedia: (url:
       <div
         ref={parentRef}
         onScroll={onScroll}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-4"
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4"
       >
         <div className="mx-auto max-w-3xl">
           <div className="mb-6 rounded-card border border-brand/15 bg-brand/[.05] p-5">
@@ -484,7 +594,7 @@ function MessageList({ query, onOpenMedia }: { query: string; onOpenMedia: (url:
                   className="absolute left-0 top-0 w-full"
                   style={{ transform: `translateY(${item.start}px)` }}
                 >
-                  <MessageRow message={messages[item.index]} onOpenMedia={onOpenMedia} />
+                  <MessageRow message={messages[item.index]} onOpenMedia={onOpenMedia} onForward={onForward} />
                 </div>
               ))}
             </div>
@@ -527,6 +637,7 @@ function Composer() {
   const stopRecording = useAudio((s) => s.stopRecording);
   const shouldSend = useRef(false);
   const recordedDuration = useRef(0);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     if (!recording && lastRecordingBlob && shouldSend.current) {
@@ -564,19 +675,21 @@ function Composer() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
-      toast.error("JPG, PNG, WebP, GIF, MP4, WebM, MP3, OGG veya M4A gönderebilirsin");
+    if (!isAllowedAttachment(file)) {
+      toast.error("Görsel, video, ses veya güvenli belge dosyaları gönderebilirsin");
       return;
     }
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      toast.error("Dosya boyutu en fazla 8 MB olabilir");
+    const kind = attachmentKind(file);
+    const limit = kind === "file" ? MAX_FILE_BYTES : MAX_ATTACHMENT_BYTES;
+    if (file.size > limit) {
+      toast.error(kind === "file" ? "Belge boyutu en fazla 4 MB olabilir" : "Dosya boyutu en fazla 8 MB olabilir");
       return;
     }
     setUploading(true);
     try {
-      setPending(file.type.startsWith("image/")
-        ? await prepareImage(file)
-        : await readMedia(file, file.type.startsWith("audio/") ? "audio" : "video"));
+      if (kind === "image") setPending(await prepareImage(file));
+      else if (kind === "audio" || kind === "video") setPending(await readMedia(file, kind));
+      else setPending(await readFile(file));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Dosya eklenemedi");
     } finally {
@@ -585,13 +698,33 @@ function Composer() {
   }
 
   async function submit() {
+    if (sendingRef.current || uploading) return;
     const text = value.trim();
-    if ((!text && !pending) || uploading) return;
-    const bodyText = text || (pending?.kind === "video" ? "Video" : pending?.kind === "audio" ? "Ses" : "Fotoğraf");
-    const body = replyTo ? `> ${replyTo.author}: ${replyTo.text}\n${bodyText}` : bodyText;
-    const ok = await sendMessage(body, pending ? [pending] : undefined);
-    if (ok) { setValue(""); setPending(null); setReplyTo(null); }
-    else toast.error(useApp.getState().error ?? "Mesaj gönderilemedi");
+    if (!text && !pending) return;
+    const currentPending = pending;
+    const currentReply = replyTo;
+    const bodyText = text || (
+      currentPending?.kind === "video" ? "Video"
+        : currentPending?.kind === "audio" ? "Ses"
+          : currentPending?.kind === "file" ? currentPending.name
+            : "Fotoğraf"
+    );
+    const body = currentReply ? `> ${currentReply.author}: ${currentReply.text}\n${bodyText}` : bodyText;
+    sendingRef.current = true;
+    setValue("");
+    setPending(null);
+    setReplyTo(null);
+    try {
+      const ok = await sendMessage(body, currentPending ? [currentPending] : undefined);
+      if (!ok) {
+        setValue(text);
+        setPending(currentPending);
+        setReplyTo(currentReply);
+        toast.error(useApp.getState().error ?? "Mesaj gönderilemedi");
+      }
+    } finally {
+      sendingRef.current = false;
+    }
   }
 
   function openSunlop() {
@@ -602,7 +735,7 @@ function Composer() {
   }
 
   return (
-    <div className="relative z-10 px-4 pb-4">
+    <div className="relative z-10 px-4 pb-[84px]">
       <div className="mx-auto max-w-3xl">
         {pending && (
           <motion.div
@@ -614,11 +747,13 @@ function Composer() {
               <img src={pending.url} alt={pending.name} className="h-10 w-10 rounded-lg object-cover" />
             ) : pending.kind === "audio" ? (
               <audio src={pending.url} controls className="h-10 w-40" />
+            ) : pending.kind === "file" ? (
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand/15 text-brand"><FileText size={16} /></span>
             ) : (
               <video src={pending.url} muted preload="metadata" className="h-10 w-10 rounded-lg object-cover" />
             )}
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-extrabold text-brand">{pending.kind === "image" ? "Fotoğraf" : pending.kind === "audio" ? "Ses" : "Video"} eklendi</p>
+              <p className="text-[10px] font-extrabold text-brand">{pending.kind === "image" ? "Fotoğraf" : pending.kind === "audio" ? "Ses" : pending.kind === "file" ? "Dosya" : "Video"} eklendi</p>
               <p className="truncate text-[11px] text-muted">{pending.name}</p>
             </div>
             <button onClick={() => setPending(null)} aria-label="Eki kaldır" className="icon-btn h-7 w-7"><X size={13} /></button>
@@ -641,7 +776,7 @@ function Composer() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/webm,audio/mp4,audio/ogg,audio/mpeg"
+          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,audio/webm,audio/mp4,audio/ogg,audio/mpeg,application/pdf,application/zip,application/x-zip-compressed,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,text/markdown,application/octet-stream"
           className="hidden"
           onChange={(event) => void onFileChange(event)}
         />
@@ -665,7 +800,7 @@ function Composer() {
           <input
             value={value}
             onChange={onChange}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!e.repeat) void submit(); } }}
             placeholder="Mesaj yaz... Sunlop yaz, cevap versin"
             className="min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-muted/60"
           />
@@ -692,7 +827,11 @@ export function ChatPanel() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
   const allMessages = useApp((s) => s.messages);
+  const dms = useApp((s) => s.dms);
+  const channelGroups = useApp((s) => s.channelGroups);
+  const forwardMessage = useApp((s) => s.forwardMessage);
   const searchResults = useMemo(() => {
     const needle = searchQuery.trim().toLocaleLowerCase("tr-TR");
     if (!needle) return 0;
@@ -701,6 +840,10 @@ export function ChatPanel() {
       message.author.toLocaleLowerCase("tr-TR").includes(needle),
     ).length;
   }, [allMessages, searchQuery]);
+  const forwardTargets = useMemo(() => [
+    ...dms.map((dm) => ({ id: dm.id, name: dm.name, icon: "DM" })),
+    ...channelGroups.flatMap((group) => group.channels.filter((channel) => channel.type !== "voice").map((channel) => ({ id: channel.id, name: `#${channel.name}`, icon: "#" }))),
+  ], [dms, channelGroups]);
 
   function toggleSearch() {
     if (searchOpen) setSearchQuery("");
@@ -746,8 +889,35 @@ export function ChatPanel() {
           ><X size={13} /></button>
         </div>
       )}
-      <MessageList query={searchQuery} onOpenMedia={(url) => void openMedia(url)} />
+      <MessageList query={searchQuery} onOpenMedia={(url) => void openMedia(url)} onForward={setForwarding} />
       <Composer />
+      <Dialog open={Boolean(forwarding)} onOpenChange={(open) => { if (!open) setForwarding(null); }}>
+        <DialogContent className="w-[min(420px,92vw)]">
+          <DialogTitle className="font-display text-[17px] font-extrabold">Mesajı ilet</DialogTitle>
+          <p className="mt-1 truncate text-[11px] text-muted">{forwarding?.text || "Ekli mesaj"}</p>
+          <div className="no-scrollbar mt-4 max-h-[320px] space-y-1 overflow-y-auto">
+            {forwardTargets.map((target) => (
+              <button
+                key={target.id}
+                onClick={() => {
+                  if (!forwarding) return;
+                  void forwardMessage(forwarding, target.id).then((ok) => {
+                    if (ok) { toast.success("Mesaj iletildi"); setForwarding(null); }
+                    else toast.error(useApp.getState().error ?? "Mesaj iletilmedi");
+                  });
+                }}
+                className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-[12px] font-bold transition hover:bg-white/[.06]"
+              >
+                <span className="grid h-7 w-7 place-items-center rounded-xl bg-brand/15 text-[10px] text-brand">{target.icon}</span>
+                <span className="min-w-0 flex-1 truncate">{target.name}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button variant="ghost" onClick={() => setForwarding(null)}>Vazgeç</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {lightboxUrl && <MediaLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
     </main>
   );

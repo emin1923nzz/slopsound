@@ -5,9 +5,12 @@ import {
   User, AtSign, Shield, Bell, Palette, Mic2, Languages, Keyboard, HardDrive, TriangleAlert,
   Check, Camera, LogOut, Monitor, MonitorUp, Sparkles, ChevronRight, ArrowLeft, Save,
   Circle, RefreshCw, AppWindow, Radio, Download, Image as ImageIcon, Gamepad2, Music2, Activity, Focus, Link2, Youtube, Boxes, MousePointer2, ShieldCheck,
+  Server as ServerIcon, Plus, UserPlus, Hash, Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp, type Accent, type NotificationPrefs } from "@/lib/store";
+import { INVITE_BASE_URL } from "@/lib/config";
+import { copyText } from "@/lib/native";
 import { useAudio } from "@/lib/audio";
 import { useVideo, resolutions, fpsOptions, qualityOptions, codecOptions } from "@/lib/video";
 import { useLiveKit } from "@/lib/livekit";
@@ -26,6 +29,9 @@ type MenuItem = { label: string; icon: React.ElementType; badge?: string; danger
 const menu: { group: string; items: MenuItem[] }[] = [
   { group: "KULLANICI AYARLARI", items: [
     { label: "Profilim", icon: User }, { label: "Hesap", icon: AtSign }, { label: "Gizlilik", icon: Shield }, { label: "Bildirimler", icon: Bell },
+  ] },
+  { group: "SUNUCU", items: [
+    { label: "Sunucu Yönetimi", icon: ServerIcon },
   ] },
   { group: "UYGULAMA", items: [
     { label: "Görünüm", icon: Palette }, { label: "Ses ve Video", icon: Mic2 }, { label: "Performans", icon: Activity }, { label: "Dil", icon: Languages },
@@ -985,8 +991,107 @@ function RemoteControlPanel() {
   );
 }
 
+function ServerManagementPanel() {
+  const activeServer = useApp((s) => s.activeServer);
+  const servers = useApp((s) => s.servers);
+  const channelGroups = useApp((s) => s.channelGroups);
+  const members = useApp((s) => s.members);
+  const createChannel = useApp((s) => s.createChannel);
+  const createInvite = useApp((s) => s.createInvite);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"text" | "voice" | "announcement">("text");
+  const [group, setGroup] = useState("Kanallar");
+  const [newGroup, setNewGroup] = useState("");
+  const [busy, setBusy] = useState(false);
+  const server = servers.find((item) => item.id === activeServer);
+  const visibleGroups = channelGroups.filter((item) => item.channels.some((channel) => channel.serverId === activeServer));
+
+  async function addChannel() {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    const ok = await createChannel(name.trim(), type, group.trim() || "Kanallar");
+    setBusy(false);
+    if (ok) { setName(""); toast.success("Kanal oluşturuldu"); }
+    else toast.error(useApp.getState().error ?? "Kanal oluşturulamadı");
+  }
+
+  async function addGroup() {
+    if (!newGroup.trim() || busy) return;
+    setBusy(true);
+    const ok = await createChannel("genel", "text", newGroup.trim());
+    setBusy(false);
+    if (ok) { setNewGroup(""); toast.success("Grup oluşturuldu"); }
+    else toast.error(useApp.getState().error ?? "Grup oluşturulamadı");
+  }
+
+  async function invite() {
+    if (!activeServer) return toast.error("Önce bir sunucu seç.");
+    const code = await createInvite();
+    if (!code) return toast.error(useApp.getState().error ?? "Davet oluşturulamadı");
+    try {
+      await copyText(`${INVITE_BASE_URL}${code}`);
+      toast.success("Davet linki kopyalandı");
+    } catch {
+      toast.success("Davet oluşturuldu", { description: `${INVITE_BASE_URL}${code}` });
+    }
+  }
+
+  return (
+    <Panel title="Sunucu Yönetimi" description="Kanal, ses odası, grup ve davet linklerini buradan yönet.">
+      <Card>
+        <SectionTitle>Seçili sunucu</SectionTitle>
+        <p className="mt-2 font-display text-[18px] font-extrabold">{server?.name ?? "Sunucu seçilmedi"}</p>
+        <p className="mt-1 text-[11px] text-muted">{members.length} üye • {visibleGroups.reduce((sum, item) => sum + item.channels.length, 0)} kanal</p>
+        <Button className="mt-4" onClick={() => void invite()}><UserPlus size={14} /> Davet linki oluştur ve kopyala</Button>
+      </Card>
+      <Card>
+        <SectionTitle>Yeni kanal veya ses odası</SectionTitle>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Input value={name} maxLength={48} onChange={(event) => setName(event.target.value)} placeholder="Kanal adı" aria-label="Kanal adı" />
+          <select value={type} onChange={(event) => setType(event.target.value as typeof type)} aria-label="Kanal türü" className="w-full rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-[13px] outline-none focus:border-brand/60">
+            <option value="text">Yazı kanalı</option>
+            <option value="voice">Sesli sohbet</option>
+            <option value="announcement">Duyuru</option>
+          </select>
+          <Input value={group} maxLength={48} onChange={(event) => setGroup(event.target.value)} placeholder="Grup adı" aria-label="Grup adı" />
+        </div>
+        <Button className="mt-4" disabled={busy || !name.trim()} onClick={() => void addChannel()}><Plus size={14} /> Kanalı oluştur</Button>
+      </Card>
+      <Card>
+        <SectionTitle>Yeni grup kur</SectionTitle>
+        <p className="mt-1 text-[11px] text-muted">Yeni grup, kendi kanal grubun olarak görünür.</p>
+        <div className="mt-4 flex gap-2">
+          <Input value={newGroup} maxLength={48} onChange={(event) => setNewGroup(event.target.value)} placeholder="Grup adı" aria-label="Yeni grup adı" />
+          <Button disabled={busy || !newGroup.trim()} onClick={() => void addGroup()}>Grup kur</Button>
+        </div>
+      </Card>
+      <Card>
+        <SectionTitle>Kanallar</SectionTitle>
+        <div className="mt-4 space-y-4">
+          {visibleGroups.length === 0 && <p className="text-[11px] text-muted">Bu sunucuda henüz kanal yok.</p>}
+          {visibleGroups.map((item) => (
+            <div key={`${activeServer}:${item.label}`}>
+              <p className="category-label !mt-0">{item.label}</p>
+              <div className="mt-2 space-y-1">
+                {item.channels.map((channel) => (
+                  <div key={channel.id} className="flex items-center gap-2 rounded-xl bg-white/[.04] px-3 py-2 text-[12px]">
+                    {channel.type === "voice" ? <Volume2 size={14} className="text-lime" /> : <Hash size={14} className="text-brand" />}
+                    <span className="min-w-0 flex-1 truncate font-bold">{channel.name}</span>
+                    <span className="text-[10px] text-muted">{channel.type === "voice" ? "Ses" : "Yazı"}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </Panel>
+  );
+}
+
 const panels: Record<string, React.ComponentType> = {
   "Profilim": ProfilePanel, "Hesap": AccountPanel, "Gizlilik": PrivacyPanel, "Bildirimler": NotificationPanel,
+  "Sunucu Yönetimi": ServerManagementPanel,
   "Görünüm": AppearancePanel, "Ses ve Video": AudioPanel, "Performans": PerformancePanel, "Dil": LanguagePanel,
   "Entegrasyonlar": IntegrationsPanel, "Uzaktan Kontrol": RemoteControlPanel, "Klavye Kısayolları": ShortcutsPanel, "Depolama": StoragePanel, "Tehlikeli Bölge": DangerPanel,
 };

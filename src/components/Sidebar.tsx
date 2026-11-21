@@ -1,14 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import { DialogTitle } from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Hash, Volume2, Megaphone, ChevronDown, Plus, Compass, Download, Search,
-  MessageCircle, Mic, MicOff, Video, VideoOff,
+  MessageCircle, Mic, MicOff, Video, VideoOff, UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { INVITE_BASE_URL } from "@/lib/config";
+import { copyText } from "@/lib/native";
 import { useLiveKit } from "@/lib/livekit";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
+import { Button, Dialog, DialogContent, Input, Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { SlopAvatar, SlopLogo } from "./SlopAvatar";
 
 function Rail() {
@@ -48,10 +51,7 @@ function Rail() {
         ))}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={() => {
-              const name = window.prompt("Sunucu adı");
-              if (name?.trim()) void useApp.getState().createServer(name.trim());
-            }} className="rail-btn text-lime"><Plus size={19} /></button>
+            <button onClick={() => useApp.getState().setCreateServerOpen(true)} className="rail-btn text-lime"><Plus size={19} /></button>
           </TooltipTrigger>
           <TooltipContent side="right">Sunucu ekle</TooltipContent>
         </Tooltip>
@@ -101,31 +101,61 @@ function ServerPanel() {
   const channelGroups = useApp((s) => s.channelGroups);
   const members = useApp((s) => s.members);
   const voiceChannelId = useApp((s) => s.voiceChannelId);
+  const createInvite = useApp((s) => s.createInvite);
   const server = servers.find((s) => s.id === activeServer) ?? servers[0];
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const visibleGroups = channelGroups.filter((group) => group.channels.some((channel) => channel.serverId === activeServer));
+  const groupNames = [...new Set(visibleGroups.map((group) => group.label))];
+
+  async function invite() {
+    if (!activeServer || inviteBusy) return;
+    setInviteBusy(true);
+    const code = await createInvite();
+    setInviteBusy(false);
+    if (!code) return toast.error(useApp.getState().error ?? "Davet oluşturulamadı");
+    try {
+      await copyText(`${INVITE_BASE_URL}${code}`);
+      toast.success("Davet linki kopyalandı");
+    } catch {
+      toast.success("Davet oluşturuldu", { description: `${INVITE_BASE_URL}${code}` });
+    }
+  }
 
   return (
     <>
-      <button className="mb-1 flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[.05]">
-        <div>
-          <p className="font-display text-[14px] font-extrabold tracking-tight">{server?.name ?? "Sunucu seçin"}</p>
+      <div className="mb-1 flex items-center gap-1 rounded-2xl px-3 py-2.5 transition hover:bg-white/[.05]">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-display text-[14px] font-extrabold tracking-tight">{server?.name ?? "Sunucu seçin"}</p>
           <p className="text-[10.5px] text-muted">{members.length} üye • {members.filter((m) => m.status === "online").length} çevrimiçi</p>
         </div>
+        <button onClick={() => void invite()} aria-label="Davet et" title="Davet et" className="icon-btn h-7 w-7"><UserPlus size={14} /></button>
+        <button onClick={() => setCreateChannelOpen(true)} aria-label="Kanal ekle" title="Kanal ekle" className="icon-btn h-7 w-7"><Plus size={15} /></button>
         <ChevronDown size={15} className="text-muted" />
-      </button>
+      </div>
 
       <div className="no-scrollbar flex-1 overflow-y-auto pb-4">
-        {channelGroups.map((group) => {
-          const isCollapsed = collapsed[group.label] ?? false;
+        {visibleGroups.map((group) => {
+          const groupKey = `${activeServer}:${group.label}`;
+          const isCollapsed = collapsed[groupKey] ?? false;
           return (
-            <div key={group.label}>
+            <div key={`${activeServer}:${group.label}`}>
               <button
-                onClick={() => setCollapsed((current) => ({ ...current, [group.label]: !isCollapsed }))}
+                onClick={() => setCollapsed((current) => ({ ...current, [groupKey]: !isCollapsed }))}
                 className="category-label flex w-full items-center gap-1.5 text-left transition hover:text-paper"
               >
                 <ChevronDown size={11} className={cn("transition-transform", isCollapsed && "-rotate-90")} />
                 <span className="min-w-0 flex-1 truncate">{group.label}</span>
                 <span className="tabular text-[9px] opacity-60">{group.channels.length}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${group.label} grubuna kanal ekle`}
+                  onClick={(event) => { event.stopPropagation(); setCreateChannelOpen(true); }}
+                  onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); setCreateChannelOpen(true); } }}
+                  className="grid h-5 w-5 place-items-center rounded-lg hover:bg-white/10"
+                ><Plus size={12} /></span>
               </button>
               {!isCollapsed && (
                 <div className="mt-1 space-y-[var(--row-gap)]">
@@ -157,6 +187,7 @@ function ServerPanel() {
           );
         })}
       </div>
+      <CreateChannelDialog open={createChannelOpen} onOpenChange={setCreateChannelOpen} groups={groupNames} />
     </>
   );
 }
@@ -171,6 +202,13 @@ function DMPanel() {
   const unreadDMs = useApp((s) => s.unreadDMs);
   const setView = useApp((s) => s.setView);
   const dms = useApp((s) => s.dms);
+  const members = useApp((s) => s.members);
+  const user = useApp((s) => s.user);
+  const createGroupDM = useApp((s) => s.createGroupDM);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [groupBusy, setGroupBusy] = useState(false);
 
   const filtered = useMemo(
     () => dms.filter((dm) => dm.name.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr"))),
@@ -191,7 +229,10 @@ function DMPanel() {
       <div className="no-scrollbar flex-1 overflow-y-auto pb-4">
         <div className="mb-2 flex items-center justify-between px-3">
           <p className="category-label !mt-0 !px-0">Arkadaşlar</p>
-          <button onClick={() => setView("addFriend")} className="text-[11px] font-bold text-brand hover:underline">+ Ekle</button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setGroupOpen(true)} className="text-[11px] font-bold text-lime hover:underline">+ Grup</button>
+            <button onClick={() => setView("addFriend")} className="text-[11px] font-bold text-brand hover:underline">+ Ekle</button>
+          </div>
         </div>
         <div className="space-y-[var(--row-gap)]">
           {filtered.map((dm) => (
@@ -216,6 +257,43 @@ function DMPanel() {
           ))}
         </div>
       </div>
+      <Dialog open={groupOpen} onOpenChange={setGroupOpen}>
+        <DialogContent className="w-[min(420px,92vw)]">
+          <DialogTitle className="font-display text-[17px] font-extrabold">Grup sohbeti kur</DialogTitle>
+          <p className="mt-1 text-[11px] text-muted">Sunucundaki kişilerden en az birini ekle.</p>
+          <div className="mt-5 space-y-3">
+            <Input autoFocus value={groupName} maxLength={48} onChange={(event) => setGroupName(event.target.value)} placeholder="Grup adı" aria-label="Grup adı" />
+            <div className="no-scrollbar max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-2">
+              {members.filter((member) => member.id !== user?.id && !member.bot).map((member) => (
+                <label key={member.id} className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-[12px] hover:bg-white/[.05]">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(member.id)}
+                    onChange={(event) => setSelected((current) => event.target.checked ? [...current, member.id] : current.filter((id) => id !== member.id))}
+                    className="accent-[hsl(var(--brand))]"
+                  />
+                  <SlopAvatar name={member.name} size={22} status={member.status} />
+                  <span className="min-w-0 flex-1 truncate font-bold">{member.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setGroupOpen(false)}>Vazgeç</Button>
+              <Button
+                disabled={groupBusy || !groupName.trim() || selected.length === 0}
+                onClick={() => void (async () => {
+                  setGroupBusy(true);
+                  const id = await createGroupDM(groupName.trim(), selected);
+                  setGroupBusy(false);
+                  if (!id) return toast.error(useApp.getState().error ?? "Grup kurulamadı");
+                  setGroupName(""); setSelected([]); setGroupOpen(false);
+                  toast.success("Grup kuruldu");
+                })()}
+              >{groupBusy ? "Kuruluyor…" : "Grubu kur"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -293,6 +371,86 @@ function VoiceStatus() {
   );
 }
 
+function CreateChannelDialog({ open, onOpenChange, groups }: { open: boolean; onOpenChange: (open: boolean) => void; groups: string[] }) {
+  const createChannel = useApp((s) => s.createChannel);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"text" | "voice" | "announcement">("text");
+  const [group, setGroup] = useState("Kanallar");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const value = name.trim();
+    const label = group.trim() || "Kanallar";
+    if (!value || busy) return;
+    setBusy(true);
+    const ok = await createChannel(value, type, label);
+    setBusy(false);
+    if (ok) { setName(""); onOpenChange(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(420px,92vw)]">
+        <DialogTitle className="font-display text-[17px] font-extrabold">Kanal veya grup kur</DialogTitle>
+        <p className="mt-1 text-[11px] text-muted">Yeni kanal, ses odası veya tamamen yeni bir grup oluştur.</p>
+        <form onSubmit={(event) => void submit(event)} className="mt-5 space-y-3">
+          <Input autoFocus value={name} maxLength={48} onChange={(event) => setName(event.target.value)} placeholder="Kanal adı" aria-label="Kanal adı" />
+          <div className="grid grid-cols-2 gap-3">
+            <select value={type} onChange={(event) => setType(event.target.value as typeof type)} aria-label="Kanal türü" className="w-full rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-[13px] outline-none focus:border-brand/60">
+              <option value="text">Yazı kanalı</option>
+              <option value="voice">Sesli sohbet</option>
+              <option value="announcement">Duyuru</option>
+            </select>
+            <Input value={group} maxLength={48} onChange={(event) => setGroup(event.target.value)} placeholder="Grup adı" aria-label="Grup adı" list="channel-groups" />
+            <datalist id="channel-groups">
+              {groups.map((item) => <option key={item} value={item} />)}
+            </datalist>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Vazgeç</Button>
+            <Button type="submit" disabled={busy || !name.trim()}>{busy ? "Kuruluyor…" : "Oluştur"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateServerDialog() {
+  const open = useApp((s) => s.createServerOpen);
+  const setOpen = useApp((s) => s.setCreateServerOpen);
+  const createServer = useApp((s) => s.createServer);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const value = name.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    const ok = await createServer(value);
+    setBusy(false);
+    if (ok) setName("");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="w-[min(420px,92vw)]">
+        <DialogTitle className="font-display text-[17px] font-extrabold">Yeni sunucu kur</DialogTitle>
+        <p className="mt-1 text-[11px] text-muted">Sunucu adını yaz, gerisini hazırlayalım.</p>
+        <form onSubmit={(event) => void submit(event)} className="mt-5 space-y-3">
+          <Input autoFocus value={name} maxLength={64} onChange={(event) => setName(event.target.value)} placeholder="Sunucu adı" aria-label="Sunucu adı" />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Vazgeç</Button>
+            <Button type="submit" disabled={busy || !name.trim()}>{busy ? "Kuruluyor…" : "Sunucuyu kur"}</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function Sidebar() {
   const sidebarTab = useApp((s) => s.sidebarTab);
   const setSidebarTab = useApp((s) => s.setSidebarTab);
@@ -301,6 +459,7 @@ export function Sidebar() {
 
   return (
     <div className="relative z-10 flex h-full shrink-0">
+      <CreateServerDialog />
       <Rail />
       <aside className="flex w-full min-w-[220px] flex-col border-r border-white/[.05] bg-surface/45">
         <div className="no-drag flex items-center gap-1 px-3 pb-2 pt-3">

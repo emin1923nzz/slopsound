@@ -3,17 +3,33 @@ import type { Message } from "./data";
 import { API_BASE } from "./config";
 
 let socket: Socket | null = null;
+let connectNotifierBound = false;
+const connectHandlers = new Set<() => void>();
+
+function bindConnectNotifier() {
+  if (!socket || connectNotifierBound) return;
+  connectNotifierBound = true;
+  socket.on("connect", () => connectHandlers.forEach((handler) => handler()));
+}
 
 export function connectRealtime() {
   if (socket?.connected) return socket;
   socket ??= io(API_BASE, { withCredentials: true, transports: ["websocket", "polling"] });
+  bindConnectNotifier();
   if (!socket.connected) socket.connect();
   return socket;
+}
+
+export function onRealtimeConnect(handler: () => void) {
+  connectHandlers.add(handler);
+  bindConnectNotifier();
+  return () => connectHandlers.delete(handler);
 }
 
 export function disconnectRealtime() {
   socket?.disconnect();
   socket = null;
+  connectNotifierBound = false;
 }
 
 export function isRealtimeConnected() {

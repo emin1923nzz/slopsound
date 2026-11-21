@@ -13,7 +13,7 @@ export type Member = {
 };
 
 export type Attachment = {
-  kind: "image" | "video" | "audio";
+  kind: "image" | "video" | "audio" | "file";
   mime: string;
   name: string;
   url: string;

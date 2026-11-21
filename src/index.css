@@ -46,7 +46,6 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  zoom: var(--ui-scale);
   background: hsl(var(--ink));
   color: hsl(var(--paper));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "DM Sans Variable", "Segoe UI", sans-serif;

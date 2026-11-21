@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { emitCall, getRealtimeSocket, onCall } from "@/lib/realtime";
+import { emitCall, getRealtimeSocket, onCall, onRealtimeConnect } from "@/lib/realtime";
 import { useApp } from "@/lib/store";
 
 export type CallMode = "audio" | "video";
@@ -16,6 +16,8 @@ type CallState = {
   activeCall: CallInfo | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  localScreenStream: MediaStream | null;
+  screenSharing: boolean;
   error: string | null;
   micEnabled: boolean;
   cameraEnabled: boolean;
@@ -27,6 +29,7 @@ type CallState = {
   bindCallEvents: () => void;
   toggleMic: () => void;
   toggleCamera: () => void;
+  toggleScreenShare: () => Promise<void>;
 };
 
 type BoundSocket = ReturnType<typeof getRealtimeSocket>;
@@ -41,6 +44,9 @@ let pendingCandidates: RTCIceCandidateInit[] = [];
 let callEventsBound = false;
 let boundSocket: BoundSocket = null;
 let eventCleanups: Array<() => void> = [];
+let connectCleanup: (() => void) | undefined;
+let screenStream: MediaStream | null = null;
+let screenSender: RTCRtpSender | null = null;
 
 function resolvePeer(channelId: string, from?: CallPeer): CallPeer {
   if (from) return from;
@@ -51,6 +57,9 @@ function resolvePeer(channelId: string, from?: CallPeer): CallPeer {
 }
 
 function cleanupMedia() {
+  screenStream?.getTracks().forEach((track) => track.stop());
+  screenStream = null;
+  screenSender = null;
   if (peerConnection) {
     peerConnection.onicecandidate = null;
     peerConnection.ontrack = null;
@@ -62,7 +71,7 @@ function cleanupMedia() {
   callChannelId = null;
   connectionPromise = null;
   pendingCandidates = [];
-  useCallStore.setState({ localStream: null, remoteStream: null, micEnabled: true, cameraEnabled: false });
+  useCallStore.setState({ localStream: null, remoteStream: null, localScreenStream: null, screenSharing: false, micEnabled: true, cameraEnabled: false });
 }
 
 function sendSignal(channelId: string, data: SignalData) {
@@ -103,9 +112,13 @@ async function flushCandidates(connection: RTCPeerConnection) {
 }
 
 function failCall(message: string, channelId?: string) {
-  if (channelId) emitCall("call:end", { channelId });
   cleanupMedia();
-  useCallStore.setState({ activeCall: null, outgoingCall: null, incomingCall: null, error: message });
+  useCallStore.setState((s) => ({
+    activeCall: !channelId || s.activeCall?.channelId === channelId ? null : s.activeCall,
+    outgoingCall: !channelId || s.outgoingCall?.channelId === channelId ? null : s.outgoingCall,
+    incomingCall: !channelId || s.incomingCall?.channelId === channelId ? null : s.incomingCall,
+    error: message,
+  }));
 }
 
 async function createOffer(channelId: string, mode: CallMode) {
@@ -130,7 +143,9 @@ async function handleSignal(channelId: string, data: SignalData) {
       await connection.addIceCandidate(data.candidate).catch(() => undefined);
       return;
     }
-    const connection = await ensureConnection(channelId, useCallStore.getState().activeCall?.mode ?? "audio");
+    const state = useCallStore.getState();
+    const call = state.activeCall ?? state.outgoingCall ?? state.incomingCall;
+    const connection = await ensureConnection(channelId, call?.mode ?? "audio");
     await connection.setRemoteDescription(data.sdp);
     await flushCandidates(connection);
     if (data.type === "offer") {
@@ -149,6 +164,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
   activeCall: null,
   localStream: null,
   remoteStream: null,
+  localScreenStream: null,
+  screenSharing: false,
   error: null,
   micEnabled: true,
   cameraEnabled: false,
@@ -201,12 +218,17 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
   bindCallEvents: () => {
     const socket = getRealtimeSocket();
+    if (!socket) {
+      connectCleanup ??= onRealtimeConnect(() => useCallStore.getState().bindCallEvents());
+      return;
+    }
+    connectCleanup?.();
+    connectCleanup = undefined;
     if (callEventsBound && boundSocket === socket) return;
     eventCleanups.forEach((off) => off());
     eventCleanups = [];
     boundSocket = socket;
     callEventsBound = true;
-    if (!socket) return;
     eventCleanups.push(
       onCall("call:incoming", (payload) => {
         const channelId = payload?.channelId;
@@ -254,18 +276,60 @@ export const useCallStore = create<CallState>()((set, get) => ({
         const channelId = payload?.channelId;
         const data = payload?.data as SignalData | undefined;
         if (!channelId || !data?.type) return;
-        const active = get().activeCall;
-        if (active && active.channelId !== channelId) return;
+        const state = get();
+        const call = state.activeCall ?? state.outgoingCall ?? state.incomingCall;
+        if (call && call.channelId !== channelId) return;
         if (data.type !== "candidate" && !data.sdp) return;
         void handleSignal(channelId, data);
       }),
       onCall("call:ended", (payload) => {
-        const active = get().activeCall;
-        if (!active || payload?.channelId !== active.channelId) return;
+        const state = get();
+        const call = state.activeCall ?? state.outgoingCall ?? state.incomingCall;
+        if (!call || payload?.channelId !== call.channelId) return;
         cleanupMedia();
-        set({ activeCall: null, error: null });
+        set({ activeCall: null, outgoingCall: null, incomingCall: null, error: null });
       }),
     );
+  },
+
+  toggleScreenShare: async () => {
+    if (get().screenSharing) {
+      const cameraTrack = localStream?.getVideoTracks()[0] ?? null;
+      await screenSender?.replaceTrack(cameraTrack).catch(() => undefined);
+      screenStream?.getTracks().forEach((track) => track.stop());
+      screenStream = null;
+      screenSender = null;
+      set({ screenSharing: false, localScreenStream: null });
+      return;
+    }
+    const call = get().activeCall;
+    if (!call || !peerConnection) {
+      set({ error: "Ekran paylaşımı için önce bir arama başlat" });
+      return;
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      set({ error: "Bu tarayıcı ekran paylaşımını desteklemiyor" });
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error("Ekran yakalanamadı");
+      let sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
+      if (sender) await sender.replaceTrack(track);
+      else {
+        sender = peerConnection.addTrack(track, stream);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        sendSignal(call.channelId, { type: "offer", sdp: peerConnection.localDescription?.toJSON() ?? offer });
+      }
+      screenStream = stream;
+      screenSender = sender;
+      track.onended = () => { void useCallStore.getState().toggleScreenShare(); };
+      set({ screenSharing: true, localScreenStream: stream, error: null });
+    } catch {
+      set({ error: "Ekran paylaşımı başlatılamadı" });
+    }
   },
 
   toggleMic: () => {

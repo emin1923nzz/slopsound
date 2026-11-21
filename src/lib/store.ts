@@ -46,6 +46,7 @@ type State = {
   view: View;
   previousView: View;
   launcherOpen: boolean;
+  createServerOpen: boolean;
   settingsSection: string;
   addFriendTab: string;
   sidebarTab: "servers" | "dms";
@@ -97,6 +98,7 @@ type State = {
   setError: (error: string | null) => void;
   setView: (view: View) => void;
   setLauncherOpen: (open: boolean) => void;
+  setCreateServerOpen: (open: boolean) => void;
   setSettingsSection: (section: string) => void;
   setAddFriendTab: (tab: string) => void;
   setSidebarTab: (tab: "servers" | "dms") => void;
@@ -104,7 +106,8 @@ type State = {
   selectChannel: (id: string) => void;
   selectDM: (id: string) => void;
   loadMessages: (id: string) => Promise<void>;
-  sendMessage: (text: string, attachments?: Attachment[]) => Promise<boolean>;
+  sendMessage: (text: string, attachments?: Attachment[], targetId?: string) => Promise<boolean>;
+  forwardMessage: (message: Message, targetId: string) => Promise<boolean>;
   sendVoiceMessage: (blob: Blob, duration: number) => Promise<boolean>;
   reactToMessage: (messageId: string, emoji: string) => Promise<void>;
   setReplyTo: (target: ReplyTarget | null) => void;
@@ -112,10 +115,12 @@ type State = {
   deleteMessage: (id: string) => void;
   notifyTyping: () => void;
   updateProfile: (patch: Partial<Profile>) => Promise<boolean>;
-  createServer: (name: string) => Promise<void>;
+  createServer: (name: string) => Promise<boolean>;
+  createChannel: (name: string, type: "text" | "voice" | "announcement", groupLabel: string) => Promise<boolean>;
   createInvite: () => Promise<string | null>;
   joinInvite: (code: string) => Promise<void>;
   createDM: (username: string) => Promise<string | null>;
+  createGroupDM: (name: string, memberIds: string[]) => Promise<string | null>;
   sendFriendRequest: (username: string) => Promise<{ ok: boolean; error?: string }>;
   acceptRequest: (id: string) => Promise<void>;
   setAccent: (accent: Accent) => void;
@@ -306,6 +311,7 @@ export const useApp = create<State>()(persist((set, get) => {
     view: "app",
     previousView: "app",
     launcherOpen: true,
+    createServerOpen: false,
     settingsSection: "Profilim",
     addFriendTab: "Ad ile Ekle",
     sidebarTab: "servers",
@@ -452,6 +458,7 @@ export const useApp = create<State>()(persist((set, get) => {
     setError: (error) => set({ error }),
     setView: (view) => set((s) => ({ view, previousView: s.view })),
     setLauncherOpen: (launcherOpen) => set({ launcherOpen }),
+    setCreateServerOpen: (createServerOpen) => set({ createServerOpen }),
     setSettingsSection: (settingsSection) => set({ settingsSection }),
     setAddFriendTab: (addFriendTab) => set({ addFriendTab }),
     setSidebarTab: (sidebarTab) => {
@@ -495,9 +502,9 @@ export const useApp = create<State>()(persist((set, get) => {
       }
     },
 
-    sendMessage: async (text, attachments) => {
+    sendMessage: async (text, attachments, targetId) => {
       const trimmed = text.trim();
-      const channelId = await currentConversation();
+      const channelId = targetId ?? await currentConversation();
       if ((!trimmed && !attachments?.length) || !channelId) return false;
       joinChannel(channelId);
       const result = attachments?.length
@@ -516,6 +523,11 @@ export const useApp = create<State>()(persist((set, get) => {
       set({ error: null });
       useAudio.getState().playSound("send");
       return true;
+    },
+
+    forwardMessage: async (message, targetId) => {
+      const body = `↪ ${message.author}: ${message.text}`;
+      return get().sendMessage(body, message.attachments, targetId);
     },
 
     sendVoiceMessage: async (blob, duration) => {
@@ -602,8 +614,29 @@ export const useApp = create<State>()(persist((set, get) => {
         const server = await api.createServer(name);
         await get().refreshBootstrap();
         get().selectServer(server.id);
+        set({ createServerOpen: false, error: null });
+        return true;
       } catch (error) {
         set({ error: error instanceof Error ? error.message : "Sunucu oluşturulamadı" });
+        return false;
+      }
+    },
+
+    createChannel: async (name, type, groupLabel) => {
+      const serverId = get().activeServer;
+      if (!serverId) {
+        set({ error: "Önce bir sunucu seç" });
+        return false;
+      }
+      try {
+        const channel = await api.createChannel(serverId, name, type, groupLabel);
+        await get().refreshBootstrap();
+        if (type !== "voice") get().selectChannel(channel.id);
+        set({ error: null });
+        return true;
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "Kanal oluşturulamadı" });
+        return false;
       }
     },
 
@@ -638,6 +671,18 @@ export const useApp = create<State>()(persist((set, get) => {
         return dm.id;
       } catch (error) {
         set({ error: error instanceof Error ? error.message : "DM açılamadı" });
+        return null;
+      }
+    },
+
+    createGroupDM: async (name, memberIds) => {
+      try {
+        const dm = await api.createGroupDM(name, memberIds);
+        await get().refreshBootstrap();
+        get().selectDM(dm.id);
+        return dm.id;
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "Grup kurulamadı" });
         return null;
       }
     },

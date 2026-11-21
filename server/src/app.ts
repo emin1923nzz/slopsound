@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import { and, desc, eq } from "drizzle-orm";
 import { cookieSameSite, corsOrigins, env } from "./env.js";
 import { db } from "./db.js";
-import { auditLogs, invites, reports, serverMembers, servers, users } from "./schema.js";
+import { auditLogs, channels, invites, reports, serverMembers, servers, users } from "./schema.js";
 import { rateLimit as checkRateLimit } from "./redis.js";
 import { requireRole } from "./rbac.js";
 import { writeAudit } from "./audit.js";
@@ -174,6 +174,10 @@ export function buildApp() {
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
     const [server] = await db.insert(servers).values({ name: parsed.data.name, ownerId: user.id }).returning();
     await db.insert(serverMembers).values({ serverId: server.id, userId: user.id, role: "owner" });
+    await db.insert(channels).values([
+      { serverId: server.id, name: "genel", type: "text", description: "Herkesin yazdığı ana kanal", groupLabel: "Kanallar", position: 0 },
+      { serverId: server.id, name: "Sesli Sohbet", type: "voice", description: "Sesli takılma odası", groupLabel: "Sesli Kanallar", position: 1 },
+    ]);
     await writeAudit({ serverId: server.id, actorId: user.id, action: "server.create", targetType: "server", targetId: server.id });
     return reply.code(201).send(server);
   });

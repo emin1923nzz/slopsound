@@ -19,7 +19,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES="v0.1.6: DM sesli ve görüntülü aramalar, fotoğraf/video/sesli mesaj ekleri, sohbet kaydırma ve gecikme düzeltmesi, Sunlop 4 cevap modu, görünen ad ve @handle, PC'den profil fotoğrafı, Edge çubuk düzeltmesi, AAA ekran paylaşımı (4K30) ve yenilenen ayarlar butonları."
+          NOTES="v0.1.7: Mesaj kutusu ve Enter gönderim düzeltmesi, PDF/ZIP/Ofis dosyası ekleri, Sunlop düzeltmesi, sesli/görüntülü arama ve ekran paylaşımı, yanıtla/ilet/emoji tepkileri, sunucu kanal/grup/davet yönetimi, grup sohbetleri ve performans iyileştirmeleri."
           gh release create "$GITHUB_REF_NAME" \
             --title "SlopSound $GITHUB_REF_NAME" \
             --notes "$NOTES" \

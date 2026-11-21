@@ -11,6 +11,7 @@ import { maybeSunlopReply } from "./bot.js";
 import { userBadges } from "./badges.js";
 import { attachmentsSchema } from "./attachments.js";
 import { registerCallHandlers } from "./calls.js";
+import { corsOrigins } from "./env.js";
 
 const messageSchema = z.object({
   channelId: z.string().uuid(),
@@ -72,7 +73,17 @@ export async function incrementUnreadForMessage(channelId: string, authorId: str
 
 export function createSocketServer(httpServer: HttpServer, origin: string | string[]) {
   const server = new Server(httpServer, {
-    cors: { origin, credentials: true },
+    cors: {
+      origin: (requestOrigin, callback) => {
+        const allowed = typeof origin === "string" ? [origin] : origin;
+        if (!requestOrigin || requestOrigin === "null" || allowed.includes(requestOrigin) || corsOrigins.includes(requestOrigin)) {
+          callback(null, requestOrigin || true);
+        } else {
+          callback(new Error("Origin not allowed"), false);
+        }
+      },
+      credentials: true,
+    },
     maxHttpBufferSize: 16 * 1024 * 1024,
   });
   io = server;
@@ -138,9 +149,9 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
         own: true,
       };
       emitMessage(parsed.data.channelId, message, user.id);
-      await incrementUnreadForMessage(parsed.data.channelId, user.id);
-      await maybeSunlopReply(parsed.data.channelId, user.id, parsed.data.body, emitMessage);
       ack?.({ ok: true, message });
+      void incrementUnreadForMessage(parsed.data.channelId, user.id).catch(() => undefined);
+      void maybeSunlopReply(parsed.data.channelId, user.id, parsed.data.body, emitMessage).catch(() => undefined);
     });
 
     socket.on("typing", (channelId: string) => {

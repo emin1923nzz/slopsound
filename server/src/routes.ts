@@ -138,32 +138,36 @@ export function registerRoutes(app: FastifyInstance) {
     };
 
     const groupMap = new Map<string, {
-      id: string; name: string; type: string; description: string;
-      serverId: string | null; unread: number; live: boolean; people: number;
-    }[]>();
+      label: string;
+      channels: {
+        id: string; name: string; type: string; description: string;
+        serverId: string | null; unread: number; live: boolean; people: number;
+      }[];
+    }>();
     for (const server of serverList) {
       const rows = await db.select().from(channels)
         .where(eq(channels.serverId, server.id))
         .orderBy(channels.position);
       for (const row of rows) {
-        const list = groupMap.get(row.groupLabel) ?? [];
+        const key = `${server.id}:${row.groupLabel}`;
+        const group = groupMap.get(key) ?? { label: row.groupLabel, channels: [] };
         const recipients = await channelRecipientIds(row.id);
         const presences = await Promise.all(recipients.map((id) => getPresence(id)));
         const people = presences.filter((p) => p === "online").length;
-        list.push({
+        group.channels.push({
           id: row.id, name: row.name, type: row.type, description: row.description,
           serverId: row.serverId, unread: await getUnread(user.id, row.id),
           live: row.type === "voice" ? people > 0 : false, people,
         });
-        groupMap.set(row.groupLabel, list);
+        groupMap.set(key, group);
       }
     }
-    const channelGroups = [...groupMap.entries()].map(([label, list]) => ({ label, channels: list }));
+    const channelGroups = [...groupMap.values()];
 
     const dmRows = await db.select({ channel: channels })
       .from(channels)
       .innerJoin(channelMembers, eq(channelMembers.channelId, channels.id))
-      .where(and(eq(channels.type, "dm"), eq(channelMembers.userId, user.id)));
+      .where(and(inArray(channels.type, ["dm", "group"]), eq(channelMembers.userId, user.id)));
     const dms = [] as {
       id: string; peerId: string; name: string; status: string; preview: string; time: string;
       unread: number; ai: boolean; group: boolean;
@@ -175,21 +179,22 @@ export function registerRoutes(app: FastifyInstance) {
         .where(and(eq(channelMembers.channelId, channel.id), ne(users.id, user.id)))
         .limit(1);
       const peer = peers[0]?.user;
-      if (!peer) continue;
+      const isGroup = channel.type === "group";
+      if (!peer && !isGroup) continue;
       const [last] = await db.select().from(messages)
         .where(eq(messages.channelId, channel.id))
         .orderBy(desc(messages.createdAt))
         .limit(1);
       dms.push({
         id: channel.id,
-        peerId: peer.id,
-        name: peer.username,
-        status: peer.bot ? peer.status : await presenceFor(peer.id, peer.status),
+        peerId: peer?.id ?? "group",
+        name: isGroup ? channel.name : peer!.username,
+        status: isGroup ? "online" : peer!.bot ? peer!.status : await presenceFor(peer!.id, peer!.status),
         preview: last?.body ?? "Yeni sohbet",
         time: last ? formatTime(last.createdAt) : "Şimdi",
         unread: await getUnread(user.id, channel.id),
-        ai: Boolean(peer.bot),
-        group: false,
+        ai: Boolean(peer?.bot),
+        group: isGroup,
       });
     }
 
@@ -351,6 +356,24 @@ export function registerRoutes(app: FastifyInstance) {
     return reply.code(201).send({ id: channelId, name: peer.username });
   });
 
+  app.post("/dms/groups", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({
+      name: z.string().min(2).max(48),
+      memberIds: z.array(z.string().uuid()).min(1).max(9),
+    }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    const ids = [...new Set([user.id, ...parsed.data.memberIds])].slice(0, 10);
+    const peers = await db.select({ id: users.id }).from(users).where(inArray(users.id, ids));
+    if (peers.length !== ids.length) return reply.code(404).send({ error: "user_not_found" });
+    const [channel] = await db.insert(channels).values({
+      name: parsed.data.name.trim(), type: "group", groupLabel: "DM", position: 0,
+    }).returning();
+    await db.insert(channelMembers).values(ids.map((id) => ({ channelId: channel.id, userId: id })));
+    return reply.code(201).send({ id: channel.id, name: channel.name });
+  });
+
   app.get("/channels/:id/messages", async (request, reply) => {
     const user = await requireAuth(request);
     if (!user) return reply.code(401).send({ error: "unauthorized" });
@@ -386,8 +409,8 @@ export function registerRoutes(app: FastifyInstance) {
     const list = await mapMessages(id, user.id);
     const message = list[list.length - 1];
     if (message) emitMessage(id, message, user.id);
-    await incrementUnreadForMessage(id, user.id);
-    await maybeSunlopReply(id, user.id, parsed.data.body, emitMessage);
+    void incrementUnreadForMessage(id, user.id).catch(() => undefined);
+    void maybeSunlopReply(id, user.id, parsed.data.body, emitMessage).catch(() => undefined);
     return reply.code(201).send(message);
   });
 

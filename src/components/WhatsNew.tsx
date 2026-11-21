@@ -2,19 +2,19 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, X } from "lucide-react";
 
-const RELEASE_ID = "slopsound-0.1.6";
+const RELEASE_ID = "slopsound-0.1.7";
 
 const highlights = [
-  "DM'lerde sesli ve görüntülü aramalar: doğrudan arkadaşına bağlan, ekranını paylaş",
-  "Sohbete fotoğraf, video ve sesli mesaj ekleri — gönder, dinle, izle",
-  "Uzun sohbetlerde kaydırma takılması ve gecikme sorunu giderildi",
-  "Sunlop artık sunucun ve DM'lerinde 4 farklı cevap moduyla yanıt veriyor",
-  "Görünen ad ve @kullanıcıadı ayrı ayarlanabiliyor; profilde handle görünüyor",
-  "Profil fotoğrafını artık bilgisayarından doğrudan yükleyebilirsin",
-  "Edge üzerinde üst çubuk/kenar çubuğu taşma hatası düzeltildi",
-  "AAA ekran paylaşımı: ekran, pencere veya sekme seçimi, 4K30'a kadar kalite",
-  "Paylaşım sırasında içerik ipucu, sistem sesi, duraklatma ve yeni kaynak seçimi",
-  "Ayarlar ekranındaki kısayol, güncelleme ve profil butonları yeniden düzenlendi",
+  "Mesaj kutusu artık alt çubuğun altında kalmıyor; Enter ile aynı mesaj iki kez gönderilmiyor",
+  "Sohbete PDF, ZIP, Word, Excel, PowerPoint ve metin dosyaları eklenebiliyor",
+  "Sunlop DM'lerde ve kanallarda güvenilir şekilde yanıt veriyor",
+  "Sesli/görüntülü aramalar ve DM ekran paylaşımı düzeltildi",
+  "Mesajlara yanıtla, ilet ve hızlı emoji tepkileri eklendi",
+  "Sunucu ayarlarından kanal, ses odası, grup ve davet linki oluşturabilirsin",
+  "Grup sohbetleri kurulabiliyor; kanallar artık sunuculara göre ayrılıyor",
+  "Yeni sunucularda hazır yazı ve ses kanalları açılıyor",
+  "Arayüz gecikmesi ve gereksiz animasyonlar azaltıldı",
+  "Davet linkleri uygulama içinde kopyalanıyor",
 ];
 
 export function WhatsNew() {

@@ -3,6 +3,8 @@ import { motion } from "motion/react";
 import { Search, Crown, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { INVITE_BASE_URL } from "@/lib/config";
+import { copyText } from "@/lib/native";
 import { type Member } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { BadgeChips } from "./BadgeChips";
@@ -36,9 +38,9 @@ export function MembersPanel() {
     if (!activeServer) return toast.error("Önce bir sunucu seç.");
     const code = await createInvite();
     if (!code) return toast.error(useApp.getState().error ?? "Davet oluşturulamadı");
-    const link = `https://slopsound.gg/${code}`;
+    const link = `${INVITE_BASE_URL}${code}`;
     try {
-      await navigator.clipboard.writeText(link);
+      await copyText(link);
       toast.success("Davet linki kopyalandı");
     } catch {
       toast.success("Davet oluşturuldu", { description: link });

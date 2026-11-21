@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "./db.js";
 import { messages, users } from "./schema.js";
 import { userBadges } from "./badges.js";
@@ -52,11 +52,33 @@ function fallbackAnswer() {
   return `Şunları sorabilirsin: ${answers.map((item) => `"${item.question}"`).join(", ")}.`;
 }
 
+async function ensureSunlopBot() {
+  const [existing] = await db.select().from(users).where(eq(users.username, "Sunlop")).limit(1);
+  if (existing) {
+    if (!existing.bot) await db.update(users).set({ bot: 1 }).where(eq(users.id, existing.id));
+    return { ...existing, bot: 1 };
+  }
+  const [created] = await db.insert(users).values({
+    email: "sunlop@slopsound.local",
+    username: "Sunlop",
+    displayName: "Sunlop",
+    passwordHash: null,
+    avatarColor: "#8B6CFF",
+    tag: "0000",
+    title: "AI Arkadaş",
+    customStatus: "Sorularını bekliyorum",
+    bio: "SlopSound yapay zekâ asistanı.",
+    status: "online",
+    bot: 1,
+  }).returning();
+  return created;
+}
+
 export async function maybeSunlopReply(
   channelId: string,
   viewerId: string,
   body: string,
-  emit: (channelId: string, message: unknown) => void,
+  emit: (channelId: string, message: unknown, authorId?: string) => void,
 ) {
   const mentioned = /@sunlop/i.test(body);
   const answer = answersByQuestion.get(normalize(body))
@@ -64,10 +86,7 @@ export async function maybeSunlopReply(
       ? "Tasarım zaten UNSLOP: sade, hızlı ve kendi tarzımız var. Devam edelim mi?"
       : mentioned ? fallbackAnswer() : undefined);
   if (!answer) return;
-  const [bot] = await db.select().from(users)
-    .where(and(eq(users.username, "Sunlop"), eq(users.bot, 1)))
-    .limit(1);
-  if (!bot) return;
+  const bot = await ensureSunlopBot();
   const [row] = await db.insert(messages).values({ channelId, authorId: bot.id, body: answer }).returning();
   const [author] = await db.select().from(users).where(eq(users.id, bot.id)).limit(1);
   emit(channelId, {
@@ -83,5 +102,5 @@ export async function maybeSunlopReply(
     avatarUrl: author?.avatarUrl || undefined,
     attachments: row.attachments ?? [],
     own: author?.id === viewerId,
-  });
+  }, bot.id);
 }

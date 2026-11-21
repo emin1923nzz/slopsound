@@ -92,7 +92,6 @@ export default function App() {
   const launcherOpen = useApp((s) => s.launcherOpen);
   const setLauncherOpen = useApp((s) => s.setLauncherOpen);
   const initAuth = useApp((s) => s.initAuth);
-  const realtimeConnected = useApp((s) => s.realtimeConnected);
   const bindCallEvents = useCallStore((s) => s.bindCallEvents);
 
   useAutoUpdate();
@@ -100,9 +99,8 @@ export default function App() {
   useEffect(() => { void initAuth(); }, [initAuth]);
 
   useEffect(() => {
-    if (!realtimeConnected) return;
     bindCallEvents();
-  }, [bindCallEvents, realtimeConnected]);
+  }, [bindCallEvents]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -218,13 +216,13 @@ export default function App() {
           <Titlebar />
           <RecordingBanner />
           <div className="relative z-10 min-h-0 flex-1">
-            <AnimatePresence mode="wait">
+            <AnimatePresence mode="sync">
               <motion.div
                 key={view}
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: .22, ease: [.2, .8, .2, 1] }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: reduceMotion ? 0 : .12, ease: [.2, .8, .2, 1] }}
                 className="h-full"
               >
                 {view === "app" && <AppView />}

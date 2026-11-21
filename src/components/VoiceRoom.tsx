@@ -115,6 +115,7 @@ export function VoiceRoom() {
   const screenHasSystemAudio = useVideo((s) => s.screenHasSystemAudio);
 
   const liveStatus = useLiveKit((s) => s.status);
+  const liveError = useLiveKit((s) => s.error);
   const liveParticipants = useLiveKit((s) => s.participants);
   const liveScreens = useLiveKit((s) => s.screens);
   const activeSpeakerIds = useLiveKit((s) => s.activeSpeakerIds);
@@ -194,7 +195,7 @@ export function VoiceRoom() {
                 <Signal size={28} />
               </motion.div>
               <p className="mt-4 font-display text-[20px] font-extrabold">{voiceChannel}</p>
-              <p className="mt-1 text-[11px] text-muted">{liveStatus === ConnectionState.Reconnecting ? "Bağlantı yeniden kuruluyor…" : "Sesli odaya bağlanılıyor…"}</p>
+              <p className="mt-1 text-[11px] text-muted">{liveError ?? (liveStatus === ConnectionState.Reconnecting ? "Bağlantı yeniden kuruluyor…" : "Sesli odaya bağlanılıyor…")}</p>
             </motion.div>
           </motion.div>
         )}
@@ -273,21 +274,22 @@ export function VoiceRoom() {
             </div>
           )}
           {screenSharing && (
-            remoteScreen ? (
-              <VideoTile
-                id="remote-screen"
-                name={remoteScreen.name}
-                color={remoteScreen.color}
-                role="Ekran paylaşımı"
-                micOn={remoteScreen.audioOn}
-                camOn
-                speaking={false}
-                track={remoteScreen.videoTrack}
-                screen
-              />
-            ) : (
+            <>
               <LocalScreenTile attachScreen={attachScreen} stream={localScreenStream} />
-            )
+              {remoteScreen && (
+                <VideoTile
+                  id="remote-screen"
+                  name={remoteScreen.name}
+                  color={remoteScreen.color}
+                  role="Ekran paylaşımı"
+                  micOn={remoteScreen.audioOn}
+                  camOn
+                  speaking={false}
+                  track={remoteScreen.videoTrack}
+                  screen
+                />
+              )}
+            </>
           )}
         </div>
 

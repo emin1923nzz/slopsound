@@ -184,7 +184,7 @@ export function Dock() {
               <TooltipContent>{server.name}</TooltipContent>
             </Tooltip>
           ))}
-          <button onClick={() => toast("Sunucu ekleme yakında")} className="grid h-9 w-9 place-items-center rounded-[13px] bg-white/[.05] text-lime transition hover:-translate-y-1 hover:rounded-full">+</button>
+          <button onClick={() => useApp.getState().setCreateServerOpen(true)} className="grid h-9 w-9 place-items-center rounded-[13px] bg-white/[.05] text-lime transition hover:-translate-y-1 hover:rounded-full">+</button>
         </div>
       </div>
     </div>

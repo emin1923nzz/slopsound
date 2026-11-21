@@ -23,6 +23,7 @@ export function SlopCompanion() {
   const dms = useApp((s) => s.dms);
   const createDM = useApp((s) => s.createDM);
   const selectDM = useApp((s) => s.selectDM);
+  const setSidebarTab = useApp((s) => s.setSidebarTab);
   const sendMessage = useApp((s) => s.sendMessage);
   const setView = useApp((s) => s.setView);
   const { ref } = useGaze({ travel: 3, lookAt: "pointer" });
@@ -57,13 +58,13 @@ export function SlopCompanion() {
     useAudio.getState().playSound("ask");
     try {
       const existing = dms.find((dm) => dm.name.toLowerCase() === "sunlop");
-      if (existing) selectDM(existing.id);
-      else {
-        const id = await createDM("Sunlop");
-        if (!id) return;
-      }
+      const dmId = existing?.id ?? await createDM("Sunlop");
+      if (!dmId) throw new Error("DM açılamadı");
+      setSidebarTab("dms");
+      selectDM(dmId);
       setView("app");
-      await sendMessage(`@Sunlop ${value}`);
+      const sent = await sendMessage(`@Sunlop ${value}`);
+      if (!sent) throw new Error(useApp.getState().error ?? "Mesaj gönderilemedi");
       setQuestion("");
       toast.success("Sunlop'a sordum, cevabı DM'de");
     } catch {
