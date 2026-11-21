@@ -86,7 +86,8 @@ jobs:
           Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
           certutil -decode certificate/tempCert.txt certificate/certificate.pfx
           Remove-Item -Path certificate/tempCert.txt
-          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+          $password = if ($env:WINDOWS_CERTIFICATE_PASSWORD) { ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText } else { New-Object System.Security.SecureString }
+          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
 
       - name: Write Windows signing config
         if: matrix.os == 'windows-latest'
@@ -94,6 +95,7 @@ jobs:
         env:
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
         run: |
+          if (-not $env:WINDOWS_CERTIFICATE_THUMBPRINT) { throw "WINDOWS_CERTIFICATE_THUMBPRINT secret is required" }
           @{
             bundle = @{
               windows = @{
