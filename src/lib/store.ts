@@ -22,6 +22,7 @@ export type Accent = "violet" | "lime" | "coral" | "cyan" | "amber";
 type Profile = {
   name: string;
   tag: string;
+  title: string;
   status: Status;
   customStatus: string;
   bio: string;
@@ -30,6 +31,8 @@ type Profile = {
   bannerUrl: string;
   activity: string;
 };
+
+type ReplyTarget = { id: string; author: string; text: string };
 
 type State = {
   view: View;
@@ -57,10 +60,12 @@ type State = {
   activityData: ActivityPoint[];
   messages: Message[];
   typingUsers: Record<string, string[]>;
+  replyTo: ReplyTarget | null;
   profile: Profile;
   accent: Accent;
   density: "comfortable" | "compact";
   reduceMotion: boolean;
+  focusMode: boolean;
   micOn: boolean;
   camOn: boolean;
   deafened: boolean;
@@ -87,20 +92,23 @@ type State = {
   selectChannel: (id: string) => void;
   selectDM: (id: string) => void;
   loadMessages: (id: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
-  sendVoiceMessage: (url: string, duration: number) => Promise<void>;
+  sendMessage: (text: string) => Promise<boolean>;
+  sendVoiceMessage: (url: string, duration: number) => Promise<boolean>;
   reactToMessage: (messageId: string, emoji: string) => Promise<void>;
+  setReplyTo: (target: ReplyTarget | null) => void;
+  deleteMessage: (id: string) => void;
   notifyTyping: () => void;
   updateProfile: (patch: Partial<Profile>) => Promise<void>;
   createServer: (name: string) => Promise<void>;
   createInvite: () => Promise<string | null>;
   joinInvite: (code: string) => Promise<void>;
   createDM: (username: string) => Promise<string | null>;
-  sendFriendRequest: (username: string) => Promise<void>;
+  sendFriendRequest: (username: string) => Promise<{ ok: boolean; error?: string }>;
   acceptRequest: (id: string) => Promise<void>;
   setAccent: (accent: Accent) => void;
   setDensity: (density: "comfortable" | "compact") => void;
   setReduceMotion: (value: boolean) => void;
+  toggleFocusMode: () => void;
   toggleMic: () => void;
   toggleCam: () => void;
   toggleDeafen: () => void;
@@ -113,11 +121,12 @@ type State = {
 };
 
 const defaultProfile: Profile = {
-  name: "senin_adin",
-  tag: "0420",
-  status: "online",
-  customStatus: "SlopSound tasarlıyor",
-  bio: "SlopSound kullanıcısı.",
+  name: "",
+  tag: "",
+  title: "",
+  status: "offline",
+  customStatus: "",
+  bio: "",
   color: "#8B6CFF",
   avatarUrl: "",
   bannerUrl: "",
@@ -131,6 +140,7 @@ function profileFromUser(user: AuthUser): Profile {
   return {
     name: user.username,
     tag: user.tag,
+    title: user.title,
     status: user.status,
     customStatus: user.customStatus,
     bio: user.bio,
@@ -247,15 +257,17 @@ export const useApp = create<State>()(persist((set, get) => {
     activityData: [],
     messages: [],
     typingUsers: {},
+    replyTo: null,
     profile: defaultProfile,
     accent: "violet",
     density: "comfortable",
     reduceMotion: false,
+    focusMode: false,
     micOn: true,
     camOn: false,
     deafened: false,
     voiceConnected: false,
-    voiceChannel: "Lobi",
+    voiceChannel: "",
     speakingId: null,
     memberQuery: "",
     dmQuery: "",
@@ -406,21 +418,42 @@ export const useApp = create<State>()(persist((set, get) => {
     sendMessage: async (text) => {
       const trimmed = text.trim();
       const channelId = await currentConversation();
-      if (!trimmed || !channelId) return;
+      if (!trimmed || !channelId) return false;
+      joinChannel(channelId);
       const result = await sendRealtimeMessage(channelId, trimmed);
-      const message = result.ok ? result.message : await api.sendMessage(channelId, trimmed).catch(() => null);
-      if (message) addMessage(channelId, message);
-      else set({ error: "Mesaj gönderilemedi" });
+      let message = result.ok ? result.message : undefined;
+      if (!message) {
+        try { message = await api.sendMessage(channelId, trimmed); }
+        catch { message = undefined; }
+      }
+      if (!message) {
+        set({ error: result.error === "offline" ? "Sunucuya bağlı değilsin" : "Mesaj gönderilemedi" });
+        return false;
+      }
+      addMessage(channelId, message);
+      set({ error: null });
       useAudio.getState().playSound("send");
+      return true;
     },
 
     sendVoiceMessage: async (audioUrl, duration) => {
       const channelId = await currentConversation();
-      if (!channelId) return;
+      if (!channelId) return false;
+      joinChannel(channelId);
       const result = await sendRealtimeMessage(channelId, "Sesli mesaj", audioUrl, duration);
-      const message = result.ok ? result.message : await api.sendMessage(channelId, "Sesli mesaj", audioUrl, duration).catch(() => null);
-      if (message) addMessage(channelId, message);
+      let message = result.ok ? result.message : undefined;
+      if (!message) {
+        try { message = await api.sendMessage(channelId, "Sesli mesaj", audioUrl, duration); }
+        catch { message = undefined; }
+      }
+      if (!message) {
+        set({ error: "Sesli mesaj gönderilemedi" });
+        return false;
+      }
+      addMessage(channelId, message);
+      set({ error: null });
       useAudio.getState().playSound("send");
+      return true;
     },
 
     reactToMessage: async (messageId, emoji) => {
@@ -432,11 +465,18 @@ export const useApp = create<State>()(persist((set, get) => {
       }
     },
 
+    setReplyTo: (replyTo) => set({ replyTo }),
+    deleteMessage: (id) => set((s) => ({
+      messages: s.messages.filter((message) => message.id !== id),
+      replyTo: s.replyTo?.id === id ? null : s.replyTo,
+    })),
+
     notifyTyping: () => { void currentConversation().then((id) => { if (id) emitTyping(id); }); },
 
     updateProfile: async (patch) => {
       const body: Record<string, unknown> = {};
       if (patch.name !== undefined) body.name = patch.name;
+      if (patch.title !== undefined) body.title = patch.title;
       if (patch.status !== undefined) body.status = patch.status;
       if (patch.customStatus !== undefined) body.customStatus = patch.customStatus;
       if (patch.bio !== undefined) body.bio = patch.bio;
@@ -497,11 +537,15 @@ export const useApp = create<State>()(persist((set, get) => {
     },
 
     sendFriendRequest: async (username) => {
+      const clean = username.trim().split("#")[0];
       try {
-        await api.friendRequest(username);
+        await api.friendRequest(clean);
         set({ error: null });
+        return { ok: true };
       } catch (error) {
-        set({ error: error instanceof Error ? error.message : "İstek gönderilemedi" });
+        const message = error instanceof Error ? error.message : "İstek gönderilemedi";
+        set({ error: message });
+        return { ok: false, error: message };
       }
     },
 
@@ -518,6 +562,7 @@ export const useApp = create<State>()(persist((set, get) => {
     setAccent: (accent) => set({ accent }),
     setDensity: (density) => set({ density }),
     setReduceMotion: (reduceMotion) => set({ reduceMotion }),
+    toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
 
     toggleMic: () => {
       const next = !get().micOn;
@@ -596,7 +641,7 @@ export const useApp = create<State>()(persist((set, get) => {
 }, {
   name: "slopsound-ui",
   storage: createJSONStorage(() => localStorage),
-  partialize: (s) => ({ accent: s.accent, density: s.density, reduceMotion: s.reduceMotion }),
+  partialize: (s) => ({ accent: s.accent, density: s.density, reduceMotion: s.reduceMotion, focusMode: s.focusMode }),
   merge: (persisted, current) => {
     const saved = (persisted ?? {}) as Partial<State>;
     return { ...current, ...saved, profile: defaultProfile };

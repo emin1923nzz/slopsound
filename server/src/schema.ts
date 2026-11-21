@@ -8,6 +8,7 @@ export const users = pgTable("users", {
   googleSub: text("google_sub"),
   avatarColor: text("avatar_color").notNull().default("#8B6CFF"),
   tag: text("tag").notNull().default("0000"),
+  title: text("title").notNull().default(""),
   customStatus: text("custom_status").notNull().default("SlopSound tasarlıyor"),
   bio: text("bio").notNull().default("SlopSound kullanıcısı."),
   avatarUrl: text("avatar_url").notNull().default(""),

@@ -7,9 +7,9 @@ import { SlopLogo } from "./SlopAvatar";
 
 export function AuthScreen() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("senin_adin@slopsound.local");
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("slopsound123");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const login = useApp((s) => s.login);
@@ -95,8 +95,7 @@ export function AuthScreen() {
         {oauthStatus && <p className="mt-3 rounded-xl bg-brand/10 px-3 py-2 text-center text-[10.5px] font-bold text-brand">{oauthStatus}</p>}
 
         <div className="mt-5 rounded-xl border border-white/[.06] bg-white/[.03] p-3 text-[10px] leading-relaxed text-muted">
-          Demo giriş: <span className="font-bold text-paper/80">senin_adin@slopsound.local</span> / <span className="font-bold text-paper/80">slopsound123</span>
-          <br />Backend ve veritabanı çalışıyorsa tüm veriler gerçek ve kalıcıdır.
+          Giriş bilgilerin sunucuda doğrulanır. Oturumun bu cihazda güvenli cookie ile saklanır.
         </div>
       </motion.div>
     </div>

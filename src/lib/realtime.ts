@@ -28,12 +28,20 @@ export function joinChannel(channelId: string) {
 export function sendRealtimeMessage(channelId: string, body: string, audioUrl?: string, duration?: number) {
   return new Promise<{ ok: boolean; message?: Message; error?: string }>((resolve) => {
     if (!socket?.connected) return resolve({ ok: false, error: "offline" });
+    let settled = false;
+    const finish = (result: { ok: boolean; message?: Message; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = window.setTimeout(() => finish({ ok: false, error: "timeout" }), 6000);
     socket.emit("message:send", {
       channelId,
       body,
       ...(audioUrl ? { audioUrl } : {}),
       ...(duration ? { duration: String(Math.round(duration)) } : {}),
-    }, (result: { ok: boolean; message?: Message; error?: string }) => resolve(result));
+    }, (result: { ok: boolean; message?: Message; error?: string }) => finish(result));
   });
 }
 

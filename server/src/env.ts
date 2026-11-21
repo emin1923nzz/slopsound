@@ -16,6 +16,7 @@ const schema = z.object({
   GOOGLE_REDIRECT_URI: z.string().default("http://127.0.0.1:43127/callback"),
   GOOGLE_WEB_REDIRECT_URI: z.string().default("http://localhost:3000/auth/google/return"),
   OAUTH_REDIRECT_TO: z.string().default("http://localhost:1420"),
+  UPDATE_MANIFEST_URL: z.string().url().default("https://github.com/emin1923nzz/slopsound/releases/latest/download/latest.json"),
   NODE_ENV: z.enum(["development", "production"]).default("development"),
 });
 

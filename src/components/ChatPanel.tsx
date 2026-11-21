@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import {
   Hash, Volume2, Megaphone, Pin, Bell, Search, Plus, Smile,
   ArrowUp, Sparkles, Phone, Video, MoreHorizontal, Mic, Square, Play,
+  Reply, Copy, Trash2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
@@ -60,47 +61,134 @@ function ChannelHeader() {
 
 function MessageRow({ message }: { message: import("@/lib/data").Message }) {
   const reactToMessage = useApp((s) => s.reactToMessage);
+  const setReplyTo = useApp((s) => s.setReplyTo);
+  const deleteMessage = useApp((s) => s.deleteMessage);
+  const [dragX, setDragX] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const drag = useRef({ active: false, startX: 0, startY: 0, moved: false, x: 0 });
+  const longPress = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(longPress.current), []);
+
+  function reply() {
+    setReplyTo({ id: message.id, author: message.author, text: message.text });
+    setMenuOpen(false);
+    setDragX(0);
+    drag.current.x = 0;
+  }
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    drag.current = { active: true, startX: event.clientX, startY: event.clientY, moved: false, x: 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    longPress.current = window.setTimeout(() => {
+      if (!drag.current.moved) {
+        setMenuOpen(true);
+        setDragX(0);
+        drag.current.x = 0;
+      }
+    }, 400);
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current.active) return;
+    const dx = event.clientX - drag.current.startX;
+    const dy = event.clientY - drag.current.startY;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+      drag.current.moved = true;
+      window.clearTimeout(longPress.current);
+    }
+    if (dx > 0 && Math.abs(dx) > Math.abs(dy)) {
+      drag.current.x = Math.min(dx, 96);
+      setDragX(drag.current.x);
+    }
+  }
+
+  function onPointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    window.clearTimeout(longPress.current);
+    if (!drag.current.active) return;
+    drag.current.active = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (drag.current.x > 64) reply();
+    else { setDragX(0); drag.current.x = 0; }
+  }
+
+  function copyText() {
+    setMenuOpen(false);
+    if (!navigator.clipboard) return;
+    void navigator.clipboard.writeText(message.text)
+      .then(() => toast.success("Mesaj kopyalandı"))
+      .catch(() => toast.error("Mesaj kopyalanamadı"));
+  }
+
   return (
     <div className="msg group flex gap-3" data-mention={message.mention}>
       <SlopAvatar name={message.author} size={36} className="mt-0.5" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-display text-[12.5px] font-extrabold" style={{ color: message.color }}>{message.author}</span>
-          {message.ai && <span className="rounded-full bg-brand/20 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-brand">AI</span>}
-          <BadgeChips badges={message.badges} compact />
-          <span className="text-[10px] text-muted/70">{message.time}</span>
-        </div>
-        <p className={cn("mt-0.5 text-[13px] leading-relaxed text-paper/85", message.ai && "text-paper")}>{message.text}</p>
-        {message.audioUrl && (
-          <div className="mt-2 flex max-w-[320px] items-center gap-3 rounded-2xl border border-brand/20 bg-brand/[.07] px-3 py-2">
-            <button
-              aria-label="Sesli mesajı oynat"
-              onClick={() => { const a = new Audio(message.audioUrl); void a.play().catch(() => undefined); }}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-ink transition hover:scale-110"
-            ><Play size={13} fill="currentColor" /></button>
-            <div className="min-w-0 flex-1">
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-2/3 rounded-full bg-brand" /></div>
-              <p className="mt-1 text-[9.5px] text-muted">Sesli mesaj • {formatDuration(message.duration ?? 0)}</p>
+        {menuOpen && <div className="context-backdrop active" onClick={() => setMenuOpen(false)} />}
+        <div className={cn("message-wrapper", menuOpen && "message-focused")}>
+          <span
+            className="reply-indicator"
+            style={{ opacity: dragX > 20 ? 1 : 0, transform: `scale(${dragX > 20 ? 1 : .5})` }}
+          ><Reply size={17} className="text-brand" /></span>
+          <div
+            className="message-bubble"
+            data-own={message.own ? "true" : "false"}
+            style={{ transform: `translateX(${dragX}px)` }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-display text-[12.5px] font-extrabold" style={{ color: message.color }}>{message.author}</span>
+              {message.ai && <span className="rounded-full bg-brand/20 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-brand">AI</span>}
+              <BadgeChips badges={message.badges} compact />
+              <span className="text-[10px] text-muted/70">{message.time}</span>
             </div>
+            <p className={cn("mt-0.5 text-[13px] leading-relaxed text-paper/85", message.ai && "text-paper")}>{message.text}</p>
+            {message.audioUrl && (
+              <div className="mt-2 flex max-w-[320px] items-center gap-3 rounded-2xl border border-brand/20 bg-brand/[.07] px-3 py-2">
+                <button
+                  aria-label="Sesli mesajı oynat"
+                  onClick={() => { const a = new Audio(message.audioUrl); void a.play().catch(() => undefined); }}
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-ink transition hover:scale-110"
+                ><Play size={13} fill="currentColor" /></button>
+                <div className="min-w-0 flex-1">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-2/3 rounded-full bg-brand" /></div>
+                  <p className="mt-1 text-[9.5px] text-muted">Sesli mesaj • {formatDuration(message.duration ?? 0)}</p>
+                </div>
+              </div>
+            )}
+            {message.reactions && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {message.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    onClick={() => void reactToMessage(message.id, r.emoji)}
+                    className="rounded-full border border-white/10 bg-white/[.05] px-2 py-0.5 text-[11px] transition hover:border-brand/50"
+                  >
+                    {r.emoji} <span className="text-[10px] font-bold text-muted">{r.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {menuOpen && (
+              <div className="ios-menu" onClick={(event) => event.stopPropagation()}>
+                <button onClick={reply}><Reply size={14} className="text-brand" /> Yanıtla</button>
+                <button onClick={() => { void reactToMessage(message.id, "👍"); setMenuOpen(false); }}><Smile size={14} className="text-warn" /> Tepki ekle</button>
+                <button onClick={copyText}><Copy size={14} className="text-muted" /> Metni kopyala</button>
+                {message.own && (
+                  <button onClick={() => { deleteMessage(message.id); setMenuOpen(false); toast.success("Mesaj silindi"); }} className="text-danger"><Trash2 size={14} /> Sil</button>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        {message.reactions && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {message.reactions.map((r) => (
-              <button
-                key={r.emoji}
-                onClick={() => void reactToMessage(message.id, r.emoji)}
-                className="rounded-full border border-white/10 bg-white/[.05] px-2 py-0.5 text-[11px] transition hover:border-brand/50"
-              >
-                {r.emoji} <span className="text-[10px] font-bold text-muted">{r.count}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        </div>
       </div>
       <div className="flex shrink-0 items-start gap-0.5 opacity-0 transition group-hover:opacity-100">
+        <button onClick={reply} className="icon-btn h-7 w-7"><Reply size={14} /></button>
         <button onClick={() => void reactToMessage(message.id, "👍")} className="icon-btn h-7 w-7"><Smile size={14} /></button>
-        <button onClick={() => toast("Mesaj yanıtlandı")} className="icon-btn h-7 w-7"><ArrowUp size={14} className="rotate-45" /></button>
       </div>
     </div>
   );
@@ -151,6 +239,8 @@ function Composer() {
   const sendMessage = useApp((s) => s.sendMessage);
   const sendVoiceMessage = useApp((s) => s.sendVoiceMessage);
   const notifyTyping = useApp((s) => s.notifyTyping);
+  const replyTo = useApp((s) => s.replyTo);
+  const setReplyTo = useApp((s) => s.setReplyTo);
   const setSidebarTab = useApp((s) => s.setSidebarTab);
   const selectDM = useApp((s) => s.selectDM);
   const dms = useApp((s) => s.dms);
@@ -176,15 +266,32 @@ function Composer() {
     if (!ok) toast.error("Sesli mesaj için mikrofon izni gerekli");
   }
 
-  function submit() {
-    if (!value.trim()) return;
-    void sendMessage(value);
-    setValue("");
+  async function submit() {
+    const text = value.trim();
+    if (!text) return;
+    const body = replyTo ? `> ${replyTo.author}: ${replyTo.text}\n${text}` : text;
+    const ok = await sendMessage(body);
+    if (ok) { setValue(""); setReplyTo(null); }
+    else toast.error(useApp.getState().error ?? "Mesaj gönderilemedi");
   }
 
   return (
     <div className="relative z-10 px-4 pb-4">
       <div className="mx-auto max-w-3xl">
+        {replyTo && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-2 flex items-center gap-2 rounded-2xl border border-brand/25 bg-brand/[.08] px-3 py-2 backdrop-blur-xl"
+          >
+            <Reply size={14} className="shrink-0 text-brand" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-extrabold text-brand">{replyTo.author} yanıtlanıyor</p>
+              <p className="truncate text-[11px] text-muted">{replyTo.text}</p>
+            </div>
+            <button onClick={() => setReplyTo(null)} aria-label="Yanıtı kaldır" className="icon-btn h-7 w-7"><X size={13} /></button>
+          </motion.div>
+        )}
         <motion.div
           layout
           className="glass flex items-center gap-2 rounded-full px-2 py-2 shadow-float transition focus-within:border-brand/45 focus-within:shadow-[0_18px_44px_rgba(0,0,0,.46),0_0_0_3px_hsl(var(--brand)/.12)]"
@@ -201,7 +308,7 @@ function Composer() {
           <input
             value={value}
             onChange={(e) => { setValue(e.target.value); notifyTyping(); }}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } }}
             placeholder="Mesaj yaz... Sunlop yaz, cevap versin"
             className="min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-muted/60"
           />
@@ -214,7 +321,7 @@ function Composer() {
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full transition hover:scale-110"
             title="Sunlop'a sor"
           ><SlopAvatar name="Sunlop" size={28} /></button>
-          <button onClick={submit} disabled={!value.trim()} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand text-ink transition hover:scale-110 hover:rotate-[-8deg] disabled:opacity-40">
+          <button onClick={() => void submit()} disabled={!value.trim()} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand text-ink transition hover:scale-110 hover:rotate-[-8deg] disabled:opacity-40">
             <ArrowUp size={17} strokeWidth={2.6} />
           </button>
         </motion.div>

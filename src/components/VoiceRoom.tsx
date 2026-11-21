@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import {
@@ -16,18 +16,11 @@ import { cn } from "@/lib/utils";
 import { SpeakingRing } from "./SpeakingRing";
 import { SlopAvatar } from "./SlopAvatar";
 
-const simulated = [
-  { id: "deniz", name: "Deniz", color: "#C9F25B", mic: true, cam: false, role: "Yayında" },
-  { id: "ahmet", name: "Ahmet", color: "#FF7460", mic: true, cam: true, role: "Valorant" },
-  { id: "yagmur", name: "Yağmur", color: "#FFBA4A", mic: false, cam: false, role: "Müzik dinliyor" },
-  { id: "mehmet", name: "Mehmet", color: "#4AD6EB", mic: true, cam: false, role: "Burada" },
-];
-
 type TileProps = {
   id: string;
   name: string;
   color: string;
-  role: string;
+  role?: string;
   micOn: boolean;
   camOn: boolean;
   speaking: boolean;
@@ -73,7 +66,7 @@ function VideoTile({ id, name, color, role, micOn, camOn, speaking, level = 0, i
       </div>
       <div className={cn("relative rounded-full bg-black/35 px-3 py-1 text-center backdrop-blur", (camOn || screen) && "bg-black/55")}>
         <p className="font-display text-[13px] font-extrabold">{isSelf ? "Sen" : name}</p>
-        <p className="mt-0.5 text-[10px] text-muted">{role}</p>
+        {role && <p className="mt-0.5 text-[10px] text-muted">{role}</p>}
       </div>
       <div className={cn("absolute bottom-3 right-3 grid h-7 w-7 place-items-center rounded-full", micOn ? "bg-lime/15 text-lime" : "bg-danger/15 text-danger")}>
         {micOn ? <Mic size={13} /> : <MicOff size={13} />}
@@ -93,8 +86,6 @@ export function VoiceRoom() {
   const toggleMic = useApp((s) => s.toggleMic);
   const toggleCam = useApp((s) => s.toggleCam);
   const toggleDeafen = useApp((s) => s.toggleDeafen);
-  const speakingId = useApp((s) => s.speakingId);
-  const setSpeaking = useApp((s) => s.setSpeaking);
   const profile = useApp((s) => s.profile);
 
   const levels = useAudio((s) => s.levels);
@@ -130,30 +121,14 @@ export function VoiceRoom() {
   const stopRecording = useRecording((s) => s.stop);
   const screenSharing = liveScreenSharing || screenSharingLocal;
 
-  const [showJoin, setShowJoin] = useState(true);
-  const [simLevels, setSimLevels] = useState<Record<string, number>>({});
-  useEffect(() => {
-    const timer = window.setTimeout(() => setShowJoin(false), 1700);
-    return () => window.clearTimeout(timer);
-  }, []);
-
   const chartData = levels.map((v, i) => ({ t: i, v: Math.round(v * 100) }));
   const preset = resolutions.find((r) => r.id === resolution) ?? resolutions[2];
   const qualityLabel = qualityOptions.find((q) => q.id === quality)?.label.split(" ")[0] ?? "Orta";
 
-  useEffect(() => {
-    const ids = simulated.map((p) => p.id);
-    const speakerTimer = window.setInterval(() => setSpeaking(ids[Math.floor(Math.random() * ids.length)]), 1600);
-    const levelTimer = window.setInterval(() => {
-      const next: Record<string, number> = {};
-      ids.forEach((id) => { next[id] = Math.random() * 0.85; });
-      setSimLevels(next);
-    }, 110);
-    return () => { window.clearInterval(speakerTimer); window.clearInterval(levelTimer); };
-  }, [setSpeaking]);
-
   const selfSpeaking = micOn && !deafened && level > 0.12;
   const connected = liveStatus === ConnectionState.Connected;
+  const connecting = liveStatus === ConnectionState.Connecting || liveStatus === ConnectionState.Reconnecting;
+  const participantCount = liveParticipants.length + 1;
 
   return (
     <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-ink/40">
@@ -161,11 +136,12 @@ export function VoiceRoom() {
       <div className="pointer-events-none absolute -right-20 top-1/3 h-72 w-72 rounded-full bg-lime/[.06] blur-3xl" />
 
       <AnimatePresence>
-        {showJoin && (
+        {connecting && (
           <motion.div
-            initial={{ opacity: 1 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 1.08 }}
-            transition={{ duration: .45 }}
+            transition={{ duration: .3 }}
             className="pointer-events-none absolute inset-0 z-50 grid place-items-center bg-ink/85 backdrop-blur-sm"
           >
             <motion.div initial={{ scale: .7, y: 12 }} animate={{ scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 260, damping: 20 }} className="text-center">
@@ -173,7 +149,7 @@ export function VoiceRoom() {
                 <Signal size={28} />
               </motion.div>
               <p className="mt-4 font-display text-[20px] font-extrabold">{voiceChannel}</p>
-              <p className="mt-1 text-[11px] text-muted">Sesli odaya bağlanılıyor…</p>
+              <p className="mt-1 text-[11px] text-muted">{liveStatus === ConnectionState.Reconnecting ? "Bağlantı yeniden kuruluyor…" : "Sesli odaya bağlanılıyor…"}</p>
             </motion.div>
           </motion.div>
         )}
@@ -198,32 +174,18 @@ export function VoiceRoom() {
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-white/[.07] bg-white/[.04] px-3 py-1.5 md:flex">
           <Users size={13} className="text-brand" />
-          <span className="tabular text-[10px] font-bold text-muted">{liveParticipants.length + 1} kişi</span>
+          <span className="tabular text-[10px] font-bold text-muted">{participantCount} kişi</span>
         </div>
       </div>
 
       <div className="relative flex min-h-0 flex-1 gap-4 p-5 pb-28">
         <div className="grid min-h-0 flex-1 grid-cols-2 content-center gap-3 lg:grid-cols-3">
-          {simulated.map((person) => (
-            <VideoTile
-              key={person.id}
-              id={person.id}
-              name={person.name}
-              color={person.color}
-              role={person.role}
-              micOn={person.mic}
-              camOn={person.cam}
-              speaking={speakingId === person.id}
-              level={person.mic ? simLevels[person.id] ?? 0 : 0}
-            />
-          ))}
           {liveParticipants.map((p) => (
             <VideoTile
               key={p.id}
               id={p.id}
               name={p.name}
               color={p.color}
-              role="LiveKit"
               micOn={p.audioOn}
               camOn={p.cameraOn}
               speaking={activeSpeakerIds.includes(p.id)}
@@ -292,7 +254,7 @@ export function VoiceRoom() {
           <div className="glass-soft rounded-panel p-4">
             <div className="flex items-center gap-2 text-muted"><Users size={14} /><p className="text-[11px] font-bold">Katılımcılar</p></div>
             <div className="mt-3 space-y-2">
-              {[...simulated.map((p) => ({ id: p.id, name: p.name, color: p.color, mic: p.mic })), ...liveParticipants.map((p) => ({ id: p.id, name: p.name, color: p.color, mic: p.audioOn }))].map((p) => (
+              {[{ id: "self", name: "Sen", color: profile.color, mic: micOn && !deafened }, ...liveParticipants.map((p) => ({ id: p.id, name: p.name, color: p.color, mic: p.audioOn }))].map((p) => (
                 <div key={p.id} className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
                   <span className="flex-1 text-[11px] text-paper/80">{p.name}</span>

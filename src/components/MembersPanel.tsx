@@ -1,17 +1,16 @@
 import { useMemo } from "react";
 import { motion } from "motion/react";
-import { Search, Crown, UserPlus, MoreHorizontal, Mic, Video } from "lucide-react";
+import { Search, Crown, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { type Member } from "@/lib/data";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { BadgeChips } from "./BadgeChips";
 import { SlopAvatar } from "./SlopAvatar";
 
 function MemberRow({ member }: { member: Member }) {
   return (
-    <div className="group flex items-center gap-2.5 rounded-card px-2.5 py-2 transition hover:bg-white/[.045]">
+    <div className="flex items-center gap-2.5 rounded-card px-2.5 py-2 transition hover:bg-white/[.045]">
       <SlopAvatar name={member.name} size={32} status={member.status} showDot />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -22,11 +21,6 @@ function MemberRow({ member }: { member: Member }) {
         </div>
         <p className="truncate text-[10px] text-muted">{member.activity}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-        <Tooltip><TooltipTrigger asChild><button onClick={() => toast(`${member.name} sesli arandı`)} className="icon-btn h-6 w-6"><Mic size={12} /></button></TooltipTrigger><TooltipContent>Sesli ara</TooltipContent></Tooltip>
-        <Tooltip><TooltipTrigger asChild><button onClick={() => toast("Görüntülü arama yakında")} className="icon-btn h-6 w-6"><Video size={12} /></button></TooltipTrigger><TooltipContent>Görüntülü ara</TooltipContent></Tooltip>
-        <button onClick={() => toast(`${member.name} profili açıldı`)} className="icon-btn h-6 w-6"><MoreHorizontal size={13} /></button>
-      </div>
     </div>
   );
 }
@@ -35,6 +29,22 @@ export function MembersPanel() {
   const query = useApp((s) => s.memberQuery);
   const setQuery = useApp((s) => s.setMemberQuery);
   const members = useApp((s) => s.members);
+  const createInvite = useApp((s) => s.createInvite);
+  const activeServer = useApp((s) => s.activeServer);
+
+  async function copyInvite() {
+    if (!activeServer) return toast.error("Önce bir sunucu seç.");
+    const code = await createInvite();
+    if (!code) return toast.error(useApp.getState().error ?? "Davet oluşturulamadı");
+    const link = `https://slopsound.gg/${code}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Davet linki kopyalandı");
+    } catch {
+      toast.success("Davet oluşturuldu", { description: link });
+    }
+  }
+
   const filtered = useMemo(
     () => members.filter((m) => m.name.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr"))),
     [query, members],
@@ -50,7 +60,7 @@ export function MembersPanel() {
       <div className="flex h-[60px] shrink-0 items-center gap-2 border-b border-white/[.06] px-4">
         <span className="font-display text-[12px] font-extrabold uppercase tracking-wider text-muted">Üyeler</span>
         <span className="rounded-full bg-white/[.06] px-2 py-0.5 text-[10px] font-bold text-muted">{members.length}</span>
-        <button onClick={() => toast("Davet linki kopyalandı")} className="icon-btn ml-auto"><UserPlus size={15} /></button>
+        <button aria-label="Davet linki oluştur" onClick={() => void copyInvite()} className="icon-btn ml-auto"><UserPlus size={15} /></button>
       </div>
       <div className="p-3">
         <div className="relative">

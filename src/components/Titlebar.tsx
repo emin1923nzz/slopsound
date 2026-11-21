@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Minus, Square, X, Wifi, WifiOff, Download, Settings2, UserPlus, Rocket } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,9 +6,10 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
-import { isTauri } from "@/lib/utils";
+import { cn, isTauri } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { SlopLogo } from "./SlopAvatar";
+import { checkHealth, type HealthStatus } from "./StatusScreens";
 
 async function winAction(action: "minimize" | "toggleMaximize" | "close") {
   if (!isTauri()) return;
@@ -23,6 +24,21 @@ export function Titlebar() {
   const setView = useApp((s) => s.setView);
   const setLauncherOpen = useApp((s) => s.setLauncherOpen);
   const [checking, setChecking] = useState(false);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      void checkHealth()
+        .then((status) => { if (active) setHealth(status); })
+        .catch(() => { if (active) setHealth({ ok: false }); });
+    };
+    load();
+    const timer = window.setInterval(load, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
+  const issue = health && (!health.ok || health.maintenance) ? (health.maintenance ? "maintenance" : "offline") : null;
 
   async function checkUpdates() {
     if (!isTauri()) {
@@ -47,7 +63,7 @@ export function Titlebar() {
   }
 
   return (
-    <header className="drag relative z-30 flex h-11 shrink-0 items-center justify-between border-b border-white/[.06] bg-ink/70 px-3 backdrop-blur-xl">
+    <header data-tauri-drag-region className="drag relative z-30 flex h-11 shrink-0 items-center justify-between border-b border-white/[.06] bg-ink/70 px-3 backdrop-blur-xl">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2.5 pl-1">
           <SlopLogo size={24} />
@@ -92,18 +108,20 @@ export function Titlebar() {
           </TooltipTrigger>
           <TooltipContent>Güncellemeleri kontrol et</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button aria-label="Bağlantı ekranı" onClick={() => setView("offline")} className="icon-btn h-7 w-7"><WifiOff size={14} /></button>
-          </TooltipTrigger>
-          <TooltipContent>Bağlantı ekranı</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button aria-label="Bakım ekranı" onClick={() => setView("maintenance")} className="icon-btn h-7 w-7"><Wifi size={14} /></button>
-          </TooltipTrigger>
-          <TooltipContent>Bakım ekranı</TooltipContent>
-        </Tooltip>
+        {issue && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={issue === "offline" ? "Bağlantı sorunu" : "Bakım durumu"}
+                onClick={() => setView(issue)}
+                className={cn("icon-btn h-7 w-7", issue === "offline" ? "text-danger" : "text-warn")}
+              >
+                {issue === "offline" ? <WifiOff size={14} /> : <Wifi size={14} />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{issue === "offline" ? "Bağlantı yok — ayrıntılar" : "Bakım sürüyor — ayrıntılar"}</TooltipContent>
+          </Tooltip>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <button aria-label="Tanıtım ekranı" onClick={() => setView("landing")} className="icon-btn h-7 w-7"><UserPlus size={14} /></button>

@@ -20,8 +20,10 @@ const notes = [
 ];
 
 export function Launcher({ loading, onClose }: { loading: boolean; onClose: () => void }) {
-  const username = useApp((s) => s.user?.username ?? "senin_adin");
-  const [version, setVersion] = useState("0.1.0");
+  const username = useApp((s) => s.user?.username ?? "Misafir");
+  const authLoading = useApp((s) => s.authLoading);
+  const bootstrapLoading = useApp((s) => s.bootstrapLoading);
+  const [version, setVersion] = useState("0.1.1");
   const [updateState, setUpdateState] = useState<UpdateState>("checking");
   const [update, setUpdate] = useState<Update | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -131,15 +133,24 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
 
               <div className="mt-8 max-w-md">
                 <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.14em] text-muted">
-                  <span>{loading ? "Bağlantı kuruluyor" : "Hazır"}</span>
+                  <span>{!loading ? "Hazır" : authLoading ? "Oturum doğrulanıyor" : bootstrapLoading ? "Veriler yükleniyor" : "Bağlantı kuruluyor"}</span>
                   <span>{loading ? "•••" : "100%"}</span>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[.07]">
-                  <motion.div
-                    animate={{ width: loading ? "68%" : "100%" }}
-                    transition={{ duration: loading ? 1.4 : .5, ease: [.2, .8, .2, 1] }}
-                    className="h-full rounded-full bg-gradient-to-r from-brand via-brand to-lime shadow-[0_0_18px_hsl(var(--brand)/.6)]"
-                  />
+                  {loading ? (
+                    <motion.div
+                      animate={{ x: ["-110%", "310%"] }}
+                      transition={{ duration: 1.3, repeat: Infinity, ease: "easeInOut" }}
+                      className="h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-brand to-lime shadow-[0_0_18px_hsl(var(--brand)/.6)]"
+                    />
+                  ) : (
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: .5, ease: [.2, .8, .2, 1] }}
+                      className="h-full rounded-full bg-gradient-to-r from-brand via-brand to-lime shadow-[0_0_18px_hsl(var(--brand)/.6)]"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -163,8 +174,8 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
                   <p className="text-[10px] font-black uppercase tracking-[.18em] text-muted">Launcher Durumu</p>
                   <p className="mt-1 font-display text-[18px] font-extrabold">Merhaba, {username}</p>
                 </div>
-                <span className={`grid h-9 w-9 place-items-center rounded-full ${updateState === "available" ? "bg-warn/15 text-warn" : "bg-lime/15 text-lime"}`}>
-                  {updateState === "available" ? <Download size={16} /> : <Check size={16} />}
+                <span className={`grid h-9 w-9 place-items-center rounded-full ${updateState === "available" ? "bg-warn/15 text-warn" : updateState === "checking" ? "bg-brand/15 text-brand" : updateState === "error" ? "bg-danger/15 text-danger" : "bg-lime/15 text-lime"}`}>
+                  {updateState === "available" ? <Download size={16} /> : updateState === "checking" ? <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent" /> : updateState === "error" ? <X size={16} /> : <Check size={16} />}
                 </span>
               </div>
 

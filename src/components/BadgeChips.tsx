@@ -1,9 +1,10 @@
-import { Crown, Flame, Gem, Medal, Sparkles, Star, type LucideIcon } from "lucide-react";
+import { Crown, Flame, Gem, Medal, ShieldCheck, Sparkles, Star, type LucideIcon } from "lucide-react";
 import { BADGE_LABELS, isBadgeId, type BadgeId } from "@/lib/badges";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 
 const badgeStyle: Record<BadgeId, { icon: LucideIcon; className: string }> = {
+  owner: { icon: ShieldCheck, className: "border-brand/50 bg-brand/20 text-brand" },
   founder: { icon: Crown, className: "border-warn/40 bg-warn/15 text-warn" },
   year_1: { icon: Sparkles, className: "border-brand/35 bg-brand/12 text-brand" },
   year_2: { icon: Medal, className: "border-cyan-400/35 bg-cyan-400/10 text-cyan-300" },

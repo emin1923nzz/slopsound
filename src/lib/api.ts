@@ -13,7 +13,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.headers ?? {}),
     },
   });
@@ -82,4 +82,7 @@ export const api = {
   joinInvite: (code: string) => request<{ ok: boolean; serverId: string }>(`/invites/${encodeURIComponent(code)}/join`, {
     method: "POST",
   }),
+  sessions: () => request<{ id: string; createdAt: string; expiresAt: string }[]>("/auth/sessions"),
+  deleteSession: (id: string) => request<{ ok: boolean }>(`/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deleteAllSessions: () => request<{ ok: boolean; removed: number }>("/auth/sessions", { method: "DELETE" }),
 };

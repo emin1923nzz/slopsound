@@ -73,6 +73,7 @@ export type AuthUser = {
   email: string;
   avatarColor: string;
   tag: string;
+  title: string;
   customStatus: string;
   bio: string;
   avatarUrl: string;

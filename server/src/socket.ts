@@ -3,9 +3,9 @@ import { Server } from "socket.io";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "./db.js";
-import { messages, users } from "./schema.js";
+import { channelMembers, channels, messages, serverMembers, servers, users } from "./schema.js";
 import { getSessionUser, SESSION_COOKIE } from "./auth.js";
-import { rateLimit, redis } from "./redis.js";
+import { incrementUnread, rateLimit, redis } from "./redis.js";
 import { canAccessChannel } from "./livekit.js";
 import { maybeSunlopReply } from "./bot.js";
 
@@ -33,6 +33,23 @@ export function emitMessage(channelId: string, message: unknown) {
 
 export function emitReaction(channelId: string, messageId: string, reactions: unknown) {
   io?.to(`channel:${channelId}`).emit("message:reaction", { channelId, messageId, reactions });
+}
+
+export async function channelRecipientIds(channelId: string) {
+  const [channel] = await db.select().from(channels).where(eq(channels.id, channelId)).limit(1);
+  if (!channel) return [] as string[];
+  if (channel.type === "dm" || !channel.serverId) {
+    const rows = await db.select({ userId: channelMembers.userId }).from(channelMembers).where(eq(channelMembers.channelId, channelId));
+    return rows.map((row) => row.userId);
+  }
+  const [server] = await db.select({ ownerId: servers.ownerId }).from(servers).where(eq(servers.id, channel.serverId)).limit(1);
+  const rows = await db.select({ userId: serverMembers.userId }).from(serverMembers).where(eq(serverMembers.serverId, channel.serverId));
+  return [...new Set([...(server ? [server.ownerId] : []), ...rows.map((row) => row.userId)])];
+}
+
+export async function incrementUnreadForMessage(channelId: string, authorId: string) {
+  const recipients = await channelRecipientIds(channelId);
+  await Promise.all(recipients.filter((id) => id !== authorId).map((id) => incrementUnread(id, channelId)));
 }
 
 export function createSocketServer(httpServer: HttpServer, origin: string | string[]) {
@@ -95,6 +112,7 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
         own: true,
       };
       emitMessage(parsed.data.channelId, message);
+      await incrementUnreadForMessage(parsed.data.channelId, user.id);
       await maybeSunlopReply(parsed.data.channelId, user.id, parsed.data.body, emitMessage);
       ack?.({ ok: true, message });
     });

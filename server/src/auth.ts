@@ -75,6 +75,7 @@ export type SessionUser = {
   email: string;
   avatarColor: string;
   tag: string;
+  title: string;
   customStatus: string;
   bio: string;
   avatarUrl: string;
@@ -88,7 +89,7 @@ export type SessionUser = {
 
 export function publicUser(user: {
   id: string; username: string; email: string; avatarColor: string;
-  tag: string; customStatus: string; bio: string; avatarUrl: string;
+  tag: string; title: string; customStatus: string; bio: string; avatarUrl: string;
   bannerUrl: string; activity: string; status: string; bot: number;
   createdAt: Date; googleSub?: string | null;
 }): SessionUser {
@@ -98,6 +99,7 @@ export function publicUser(user: {
     email: user.email,
     avatarColor: user.avatarColor,
     tag: user.tag,
+    title: user.title,
     customStatus: user.customStatus,
     bio: user.bio,
     avatarUrl: user.avatarUrl,
@@ -106,7 +108,7 @@ export function publicUser(user: {
     status: user.status,
     bot: Boolean(user.bot),
     createdAt: user.createdAt.toISOString(),
-    badges: userBadges(user.createdAt, user.username),
+    badges: userBadges(user.createdAt, user.username, user.tag),
   };
 }
 

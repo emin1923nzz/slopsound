@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Mic, MicOff, Headphones, HeadphoneOff, Video, VideoOff, Settings2, Crown, ChevronUp, Sparkles } from "lucide-react";
+import { Mic, MicOff, Headphones, HeadphoneOff, Video, VideoOff, Settings2, ChevronUp, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { useAudio } from "@/lib/audio";
@@ -20,6 +20,7 @@ const statusClass: Record<string, string> = {
 function ProfilePopover() {
   const profile = useApp((s) => s.profile);
   const badges = useApp((s) => s.user?.badges ?? []);
+  const servers = useApp((s) => s.servers);
   const setView = useApp((s) => s.setView);
   const updateProfile = useApp((s) => s.updateProfile);
   const statuses = ["online", "idle", "dnd", "offline"] as const;
@@ -44,28 +45,21 @@ function ProfilePopover() {
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <p className="truncate font-display text-[15px] font-extrabold">{profile.name}</p>
-        <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-warn">NITRO</span>
-        <BadgeChips badges={badges} compact />
-      </div>
+            <BadgeChips badges={badges} compact />
+          </div>
           <p className="text-[11px] text-muted">{profile.name}#{profile.tag}</p>
             <p className="mt-0.5 text-[10.5px]" style={{ color: profile.color }}>{profile.customStatus}</p>
             {profile.activity && <p className="mt-0.5 truncate text-[9.5px] text-lime">{profile.activity}</p>}
           </div>
       </div>
       <p className="mt-4 text-[11.5px] leading-relaxed text-paper/75">{profile.bio}</p>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <span className="rounded-full bg-white/[.06] px-2 py-1 text-[9.5px] font-bold text-muted">LVL 12</span>
-        <span className="rounded-full bg-white/[.06] px-2 py-1 text-[9.5px] font-bold text-muted">SlopSound HQ</span>
-        <span className="rounded-full bg-white/[.06] px-2 py-1 text-[9.5px] font-bold text-muted">Oyun Tayfası</span>
-      </div>
-      <div className="mt-4">
-        <div className="mb-1.5 flex items-center justify-between text-[9.5px] font-bold text-muted">
-          <span>İlerleme</span><span className="tabular">LVL 12 • %68</span>
+      {servers.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {servers.map((server) => (
+            <span key={server.id} className="rounded-full bg-white/[.06] px-2 py-1 text-[9.5px] font-bold text-muted">{server.name}</span>
+          ))}
         </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full w-[68%] rounded-full bg-gradient-to-r from-brand to-lime" />
-        </div>
-      </div>
+      )}
       <p className="category-label !mt-4 !px-0">Durum</p>
       <div className="mt-2 grid grid-cols-4 gap-1.5">
         {statuses.map((status) => (
@@ -123,7 +117,6 @@ export function Dock() {
           <div className="hidden text-left sm:block">
             <div className="flex items-center gap-1.5">
               <p className="max-w-[110px] truncate text-[11.5px] font-extrabold">{profile.name}</p>
-              <Crown size={10} className="text-warn" />
               <BadgeChips badges={badges} compact />
             </div>
             <p className="max-w-[130px] truncate text-[9.5px] text-muted">{statusLabel[profile.status]} • {profile.customStatus}</p>

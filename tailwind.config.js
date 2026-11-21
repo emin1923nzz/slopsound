@@ -5,8 +5,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        display: ["Bricolage Grotesque Variable", "Bricolage Grotesque", "sans-serif"],
-        sans: ["DM Sans Variable", "DM Sans", "sans-serif"],
+        display: ["-apple-system", "BlinkMacSystemFont", "SF Pro Display", "Bricolage Grotesque Variable", "sans-serif"],
+        sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Text", "DM Sans Variable", "Segoe UI", "sans-serif"],
       },
       colors: {
         ink: "hsl(var(--ink) / <alpha-value>)",
@@ -65,8 +65,8 @@ export default {
         shake: { "0%,100%": { transform: "rotate(-8deg)" }, "50%": { transform: "rotate(8deg)" } },
       },
       animation: {
-        "fade-up": "fade-up .45s cubic-bezier(.2,.8,.2,1) both",
-        "scale-in": "scale-in .3s cubic-bezier(.2,.8,.2,1) both",
+        "fade-up": "fade-up .45s cubic-bezier(.32,.72,0,1) both",
+        "scale-in": "scale-in .3s cubic-bezier(.32,.72,0,1) both",
         shimmer: "shimmer 2.4s linear infinite",
         "pulse-ring": "pulse-ring 2s ease-out infinite",
         drift: "drift 7s ease-in-out infinite",

@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  ArrowLeft, Download, MessageCircle, Users, Volume2,
+  ArrowLeft, ArrowRight, MessageCircle, Users, Volume2,
   Sparkles, Shield, Zap, Monitor, Apple, Smartphone, Star,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
-import { cn } from "@/lib/utils";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./accordion";
 import { Button } from "./ui";
 import { SlopAvatar, SlopLogo } from "./SlopAvatar";
@@ -43,7 +42,7 @@ function Sloppi() {
         <h3 className="font-display text-[17px] font-extrabold">Sloppi <span className="text-muted">• SlopSound Maskotu</span></h3>
         <p className="mx-auto mt-1.5 max-w-xs text-[11.5px] leading-relaxed text-muted">Neşeli, yardımsever, biraz yaramaz. Sohbette kaybolursan sana yol gösterir. Tıkla, konuşsun.</p>
         <div className="mt-3 flex justify-center gap-1.5"><span className="rounded-full bg-white/[.06] px-2.5 py-1 text-[9.5px] font-bold text-muted">Maskot</span><span className="rounded-full bg-white/[.06] px-2.5 py-1 text-[9.5px] font-bold text-muted">Yardımcı</span><span className="rounded-full bg-white/[.06] px-2.5 py-1 text-[9.5px] font-bold text-muted">7/24 Burada</span></div>
-        <div className="mt-5 flex justify-center gap-2"><Button size="sm" onClick={() => { setLine((l) => (l + 1) % bubbleLines.length); toast("Sloppi: " + bubbleLines[(line + 1) % bubbleLines.length]); }}>Sloppi ile Konuş</Button><Button size="sm" variant="outline" onClick={() => toast("Duvar kağıdı indiriliyor...")}>Duvar Kağıdı Al</Button></div>
+        <div className="mt-5 flex justify-center gap-2"><Button size="sm" onClick={() => { setLine((l) => (l + 1) % bubbleLines.length); toast("Sloppi: " + bubbleLines[(line + 1) % bubbleLines.length]); }}>Sloppi ile Konuş</Button><Button size="sm" variant="outline" onClick={() => toast("Duvar kağıdı yakında")}>Duvar Kağıdı Al</Button></div>
       </div>
     </div>
   );
@@ -55,18 +54,11 @@ const features = [
   { icon: Volume2, title: "Ses Odaları", desc: "Düşük gecikme, konuşanı belli eden halkalar. Gir, takıl." },
   { icon: Sparkles, title: "Sunlop Asistanı", desc: "Sol altta hep durur. Yaz, cevap versin. 7/24 çevrimiçi." },
   { icon: Shield, title: "Gizlilik", desc: "Kim sana yazabilir, kim seni ekleyebilir — sen kontrol edersin." },
-  { icon: Zap, title: "Hızlı", desc: "Çevrimdışı destek, bakım bildirimi, 60 FPS akıcılık." },
-];
-
-const previewMessages = [
-  "Tasarım çok yumuşak olmuş, bayıldım",
-  "Sloppi çok tatlı, maskota bayıldım",
-  "Mor tema daha iyi, kesin",
+  { icon: Zap, title: "Hızlı", desc: "Gerçek bağlantı durumu, sade arayüz, akıcı geçişler." },
 ];
 
 export function Landing() {
   const setView = useApp((s) => s.setView);
-  const [preview, setPreview] = useState(0);
   return (
     <div className="relative z-10 h-full overflow-y-auto">
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-white/[.06] bg-ink/80 px-5 backdrop-blur-xl">
@@ -81,16 +73,11 @@ export function Landing() {
 
       <section className="mx-auto grid max-w-[1120px] items-center gap-10 px-5 py-14 lg:grid-cols-[1.15fr_.85fr]">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6 }}>
-          <span className="inline-flex items-center gap-2 rounded-full border border-lime/25 bg-lime/[.08] px-3 py-1.5 text-[10px] font-black tracking-wider text-lime"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime" /> 12.400 kişi şu an çevrimiçi</span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-lime/25 bg-lime/[.08] px-3 py-1.5 text-[10px] font-black tracking-wider text-lime"><Sparkles size={11} /> Sade, hızlı, kendi kimliğinle</span>
           <h1 className="mt-5 font-display text-[52px] font-extrabold leading-[1.05] tracking-[-.04em] max-sm:text-[36px]">Konuş, oyna,<br /><span className="text-brand">takıl.</span> Hepsi burada.</h1>
           <p className="mt-5 max-w-lg text-[16px] leading-relaxed text-muted">SlopSound, Discord'a benzeyen ama onun kopyası olmayan, sade ve hızlı bir sohbet uygulaması. Sunucular, DM, ses odaları ve Sunlop asistanı tek yerde.</p>
-          <div className="mt-7 flex flex-wrap gap-3"><Button size="lg" onClick={() => setView("app")}><Download size={16} /> Ücretsiz İndir ↓</Button><Button size="lg" variant="outline" onClick={() => document.getElementById("uygulama")?.scrollIntoView({ behavior: "smooth" })}>Uygulamaya Bak</Button></div>
-          <p className="mt-3 text-[11px] text-muted">Ücretsiz • Kredi kartı istemez • 2 dakikada kurulum</p>
-          <div className="mt-9 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {[["128K+", "Kullanıcı"], ["4.9/5", "Ortalama puan"], ["%99.9", "Çalışma süresi"], ["24/7", "Destek"]].map(([value, label]) => (
-              <div key={label}><p className="font-display text-[22px] font-extrabold">{value}</p><p className="text-[10px] text-muted">{label}</p></div>
-            ))}
-          </div>
+          <div className="mt-7 flex flex-wrap gap-3"><Button size="lg" onClick={() => setView("app")}>Hemen Başla <ArrowRight size={16} /></Button><Button size="lg" variant="outline" onClick={() => document.getElementById("uygulama")?.scrollIntoView({ behavior: "smooth" })}>Uygulamaya Bak</Button></div>
+          <p className="mt-3 text-[11px] text-muted">Ücretsiz • Kredi kartı istemez • Kolay kurulum</p>
         </motion.div>
         <motion.div initial={{ opacity: 0, scale: .94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .6, delay: .1 }}><Sloppi /></motion.div>
       </section>
@@ -111,13 +98,13 @@ export function Landing() {
 
       <section id="uygulama" className="mx-auto max-w-[1120px] scroll-mt-20 px-5 py-12">
         <h2 className="font-display text-[26px] font-extrabold tracking-tight">Uygulama nasıl görünüyor?</h2>
-        <p className="mt-1 text-[12.5px] text-muted">Gerçek ekran görüntüsü yerine, canlı önizleme. Tıkla, mesajlar değişsin.</p>
+        <p className="mt-1 text-[12.5px] text-muted">Arayüz şeması. Gerçek kanallar, mesajlar ve üyeler giriş yaptıktan sonra yüklenir.</p>
         <div className="glass mt-6 overflow-hidden rounded-panel">
-          <div className="flex h-9 items-center gap-2 border-b border-white/[.07] px-4"><span className="h-2 w-2 rounded-full bg-danger" /><span className="h-2 w-2 rounded-full bg-warn" /><span className="h-2 w-2 rounded-full bg-lime" /><span className="ml-3 text-[10px] font-bold text-muted">SlopSound — genel</span><span className="ml-auto rounded-full bg-lime/10 px-2 py-0.5 text-[9px] font-black text-lime">CANLI ÖNİZLEME</span></div>
+          <div className="flex h-9 items-center gap-2 border-b border-white/[.07] px-4"><span className="h-2 w-2 rounded-full bg-danger" /><span className="h-2 w-2 rounded-full bg-warn" /><span className="h-2 w-2 rounded-full bg-lime" /><span className="ml-3 text-[10px] font-bold text-muted">SlopSound — arayüz</span><span className="ml-auto rounded-full bg-white/[.06] px-2 py-0.5 text-[9px] font-black text-muted">ARAYÜZ ŞEMASI</span></div>
           <div className="grid min-h-[260px] grid-cols-[150px_1fr_130px] max-sm:grid-cols-[100px_1fr]">
-            <div className="border-r border-white/[.06] p-3"><p className="category-label !px-0 !mt-0">Kanallar</p>{["genel", "sohbet", "tasarım"].map((c) => <p key={c} className="mt-2 rounded-lg bg-white/[.05] px-2 py-1.5 text-[10px] text-muted">{c}</p>)}<p className="category-label !px-0">Ses Odaları</p><p className="mt-2 rounded-lg bg-brand/10 px-2 py-1.5 text-[10px] text-brand">Lobi • 4</p></div>
-            <div className="p-4"><p className="text-[11px] font-bold text-muted">Sohbet • genel</p><AnimatePresence mode="wait"><motion.div key={preview} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="mt-6 rounded-card border border-brand/15 bg-brand/[.05] p-4"><p className="text-[10px] font-bold text-brand">Ahmet • 12:42</p><p className="mt-1 text-[12px]">{previewMessages[preview]}</p></motion.div></AnimatePresence><div className="mt-4 flex gap-1.5">{previewMessages.map((_, i) => <button key={i} onClick={() => setPreview(i)} className={cn("h-1.5 rounded-full transition-all", preview === i ? "w-6 bg-brand" : "w-1.5 bg-white/20")} />)}</div></div>
-            <div className="hidden border-l border-white/[.06] p-3 sm:block"><p className="category-label !px-0 !mt-0">Üyeler</p>{["Deniz", "Elif", "Ahmet", "Sunlop"].map((m) => <p key={m} className="mt-2 flex items-center gap-2 text-[10px] text-muted"><span className="h-1.5 w-1.5 rounded-full bg-lime" />{m}</p>)}</div>
+            <div className="border-r border-white/[.06] p-3"><p className="category-label !px-0 !mt-0">Kanallar</p><div className="mt-2 space-y-1.5">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-lg bg-white/[.05]" />)}</div><p className="category-label !px-0">Ses Odaları</p><div className="mt-2 h-6 rounded-lg bg-brand/10" /></div>
+            <div className="p-4"><p className="text-[11px] font-bold text-muted">Sohbet</p><div className="mt-6 space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-card border border-white/[.06] bg-white/[.02]" />)}</div><p className="mt-4 text-[10px] text-muted">Mesajlar giriş yaptıktan sonra burada görünür.</p></div>
+            <div className="hidden border-l border-white/[.06] p-3 sm:block"><p className="category-label !px-0 !mt-0">Üyeler</p><div className="mt-2 space-y-2">{[0, 1, 2, 3].map((i) => <div key={i} className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-white/20" /><span className="h-2 flex-1 rounded bg-white/[.05]" /></div>)}</div></div>
           </div>
         </div>
       </section>
@@ -135,8 +122,8 @@ export function Landing() {
           ))}
         </div>
         <div className="mt-4 flex flex-col items-start justify-between gap-4 rounded-panel border border-brand/30 bg-gradient-to-br from-brand/15 to-transparent p-6 sm:flex-row sm:items-center">
-          <div><h3 className="font-display text-[18px] font-extrabold">SlopSound'u indir</h3><p className="mt-1 text-[11.5px] text-muted">Windows, Mac, Linux. Tek hesap, her yerde senkron. İnternetsiz de çalışır, bakımda da haber verir.</p></div>
-          <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => toast("Windows sürümü indiriliyor...")}><Monitor size={14} /> Windows</Button><Button size="sm" variant="outline" onClick={() => toast("macOS sürümü indiriliyor...")}><Apple size={14} /> Mac</Button><Button size="sm" variant="outline" onClick={() => toast("Linux sürümü indiriliyor...")}><Smartphone size={14} /> Linux</Button></div>
+          <div><h3 className="font-display text-[18px] font-extrabold">SlopSound'u indir</h3><p className="mt-1 text-[11.5px] text-muted">Windows kurulum dosyası hazır. Mac ve Linux sürümleri planlanıyor.</p></div>
+          <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => toast("İndirme bağlantısı yakında")}><Monitor size={14} /> Windows</Button><Button size="sm" variant="outline" onClick={() => toast("macOS sürümü planlanıyor")}><Apple size={14} /> Mac</Button><Button size="sm" variant="outline" onClick={() => toast("Linux sürümü planlanıyor")}><Smartphone size={14} /> Linux</Button></div>
         </div>
       </section>
 
@@ -145,11 +132,11 @@ export function Landing() {
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[
             ["SlopSound nedir?", "Sade, hızlı, kendi kimliği olan bir sohbet uygulaması."],
-            ["Ücretli mi?", "Hayır. Nitro gibi ekstralar isteğe bağlı, temel kullanım ücretsiz."],
-            ["Güvenli mi?", "Mesajların şifreli, gizlilik ayarları tamamen sende."],
-            ["Hangi cihazlarda?", "Windows, macOS, Linux ve mobil. Tek hesap, her yerde."],
-            ["İnternet giderse?", "Mesajların kuyruğa eklenir, bağlantı gelince gönderilir."],
-            ["Bakım olursa?", "Ekranda ilerlemeyi görürsün, bitince haber veririz."],
+            ["Ücretli mi?", "Hayır. Temel kullanım ücretsiz."],
+            ["Güvenli mi?", "Oturumlar sunucuda doğrulanır; mesajlar uçtan uca şifreli değildir."],
+            ["Hangi cihazlarda?", "Şu an Windows. macOS ve Linux planlanıyor."],
+            ["İnternet giderse?", "Bağlantı kesilince durum ekranı gösterilir; mesaj kuyruğu yok."],
+            ["Bakım olursa?", "Durum ekranı gerçek servis durumunu gösterir."],
           ].map(([q, a]) => <div key={q} className="rounded-[22px] border border-white/[.07] bg-white/[.03] p-5"><h3 className="text-[12.5px] font-extrabold">{q}</h3><p className="mt-1.5 text-[11px] leading-relaxed text-muted">{a}</p></div>)}
         </div>
       </section>

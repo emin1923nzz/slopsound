@@ -3,8 +3,8 @@ import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import {
   User, AtSign, Shield, Bell, Palette, Mic2, Languages, Keyboard, HardDrive, TriangleAlert,
-  Check, Camera, Lock, LogOut, Trash2, Monitor, MonitorUp, Sparkles, Smartphone, ChevronRight, ArrowLeft, Save,
-  Circle, RefreshCw, AppWindow, Radio, Download, Search, Image as ImageIcon, Gamepad2, Music2, Activity,
+  Check, Camera, LogOut, Monitor, MonitorUp, Sparkles, ChevronRight, ArrowLeft, Save,
+  Circle, RefreshCw, AppWindow, Radio, Download, Image as ImageIcon, Gamepad2, Music2, Activity, Focus, Link2, Youtube, Boxes, MousePointer2, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp, type Accent } from "@/lib/store";
@@ -17,18 +17,19 @@ import { shortcutLabels, useShortcuts, type ShortcutAction } from "@/lib/shortcu
 import { ConnectionState } from "livekit-client";
 import { usePerf } from "@/lib/perf";
 import { cn } from "@/lib/utils";
-import { Badge, Button, Dialog, DialogContent, DialogTrigger, Input, SectionTitle, Switch, Textarea } from "./ui";
+import { Badge, Button, Input, SectionTitle, Switch, Textarea } from "./ui";
 import { BadgeChips } from "./BadgeChips";
 import { SlopAvatar } from "./SlopAvatar";
+import { api } from "@/lib/api";
 
 type MenuItem = { label: string; icon: React.ElementType; badge?: string; danger?: boolean };
 const menu: { group: string; items: MenuItem[] }[] = [
   { group: "KULLANICI AYARLARI", items: [
-    { label: "Profilim", icon: User }, { label: "Hesap", icon: AtSign }, { label: "Gizlilik", icon: Shield, badge: "2" }, { label: "Bildirimler", icon: Bell },
+    { label: "Profilim", icon: User }, { label: "Hesap", icon: AtSign }, { label: "Gizlilik", icon: Shield }, { label: "Bildirimler", icon: Bell },
   ] },
   { group: "UYGULAMA", items: [
     { label: "Görünüm", icon: Palette }, { label: "Ses ve Video", icon: Mic2 }, { label: "Performans", icon: Activity }, { label: "Dil", icon: Languages },
-    { label: "Klavye Kısayolları", icon: Keyboard }, { label: "Depolama", icon: HardDrive }, { label: "Tehlikeli Bölge", icon: TriangleAlert, danger: true },
+    { label: "Entegrasyonlar", icon: Link2 }, { label: "Uzaktan Kontrol", icon: MousePointer2 }, { label: "Klavye Kısayolları", icon: Keyboard }, { label: "Depolama", icon: HardDrive }, { label: "Tehlikeli Bölge", icon: TriangleAlert, danger: true },
   ] },
 ];
 
@@ -55,7 +56,7 @@ function Panel({ title, description, children }: { title: string; description: s
 }
 
 function Card({ children, className, id }: { children: React.ReactNode; className?: string; id?: string }) {
-  return <div id={id} className={cn("glass rounded-panel p-5", className)}>{children}</div>;
+  return <div id={id} className={cn("glass glass-card rounded-panel p-5", className)}>{children}</div>;
 }
 
 function Row({ icon: Icon, title, description, children }: { icon: React.ElementType; title: string; description: string; children?: React.ReactNode }) {
@@ -95,31 +96,34 @@ function Chips({ options, value, onChange }: { options: string[]; value: string;
   );
 }
 
+type ProfilePatch = Partial<ReturnType<typeof useApp.getState>["profile"]>;
+
 function ProfilePanel() {
   const profile = useApp((s) => s.profile);
   const badges = useApp((s) => s.user?.badges ?? []);
   const updateProfile = useApp((s) => s.updateProfile);
   const activityData = useApp((s) => s.activityData);
-  const [bio, setBio] = useState(profile.bio);
-  const [tenorKey, setTenorKey] = useState("");
-  const [gifQuery, setGifQuery] = useState("dance");
-  const [gifs, setGifs] = useState<string[]>([]);
-  const [gifLoading, setGifLoading] = useState(false);
+  const [draft, setDraft] = useState(profile);
+  const saveTimer = useRef<number | undefined>(undefined);
 
-  async function searchGifs() {
-    if (!tenorKey.trim()) { toast.error("Tenor API anahtarı gerekli"); return; }
-    setGifLoading(true);
-    try {
-      const url = `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(gifQuery)}&key=${encodeURIComponent(tenorKey)}&limit=12&media_filter=minimal`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Tenor isteği başarısız");
-      const data = await response.json() as { results?: { media_formats?: { gif?: { url?: string } } }[] };
-      setGifs((data.results ?? []).map((r) => r.media_formats?.gif?.url).filter((u): u is string => Boolean(u)));
-    } catch {
-      toast.error("GIF’ler alınamadı");
-    } finally {
-      setGifLoading(false);
-    }
+  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+
+  function save(patch: ProfilePatch) {
+    setDraft((current) => ({ ...current, ...patch }));
+    void updateProfile(patch);
+  }
+
+  function queue(patch: ProfilePatch) {
+    setDraft((current) => ({ ...current, ...patch }));
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => { void updateProfile(patch); }, 400);
+  }
+
+  function queueName(value: string) {
+    setDraft((current) => ({ ...current, name: value }));
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(value)) return;
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => { void updateProfile({ name: value }); }, 400);
   }
 
   return (
@@ -127,20 +131,20 @@ function ProfilePanel() {
       <Card>
         <SectionTitle>Önizleme</SectionTitle>
         <div className="mt-4 overflow-hidden rounded-card border border-white/[.06] bg-black/20">
-          <div className="h-24 w-full bg-cover bg-center" style={profile.bannerUrl ? { backgroundImage: `url(${profile.bannerUrl})` } : { background: `linear-gradient(120deg, ${profile.color}55, transparent 60%), radial-gradient(circle at 80% 20%, #C9F25B33, transparent 50%)` }} />
+          <div className="h-24 w-full bg-cover bg-center" style={draft.bannerUrl ? { backgroundImage: `url(${draft.bannerUrl})` } : { background: `linear-gradient(120deg, ${draft.color}55, transparent 60%), radial-gradient(circle at 80% 20%, #C9F25B33, transparent 50%)` }} />
           <div className="-mt-8 flex flex-wrap items-end gap-4 p-5 pt-0">
-          <SlopAvatar name={profile.name} size={64} status={profile.status} showDot className="ring-4 ring-[#17141f]" />
+          <SlopAvatar name={draft.name} size={64} status={draft.status} showDot className="ring-4 ring-[#17141f]" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-display text-[17px] font-extrabold">{profile.name}</p>
-              <Badge className="border-warn/30 bg-warn/10 text-warn">NITRO</Badge>
+              <p className="font-display text-[17px] font-extrabold">{draft.name}</p>
+              {draft.title && <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[9px] font-bold text-brand">{draft.title}</span>}
             </div>
-            <p className="text-[11.5px] text-muted">{profile.name}#{profile.tag} • <span style={{ color: profile.color }}>{profile.customStatus}</span></p>
-            {profile.activity && <p className="mt-1 flex items-center gap-1.5 text-[10.5px] text-lime"><Radio size={11} /> {profile.activity}</p>}
-            <p className="mt-2 max-w-md text-[12px] text-paper/75">{bio}</p>
-            <div className="mt-2 flex flex-wrap gap-1.5"><BadgeChips badges={badges} /><Badge>LVL 12</Badge><Badge>SlopSound HQ</Badge><Badge>Oyun Tayfası</Badge></div>
+            <p className="text-[11.5px] text-muted">{draft.name}#{profile.tag} • <span style={{ color: draft.color }}>{draft.customStatus}</span></p>
+            {draft.activity && <p className="mt-1 flex items-center gap-1.5 text-[10.5px] text-lime"><Radio size={11} /> {draft.activity}</p>}
+            <p className="mt-2 max-w-md text-[12px] text-paper/75">{draft.bio}</p>
+            {badges.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5"><BadgeChips badges={badges} /></div>}
           </div>
-          <Button variant="outline" size="sm" onClick={() => document.getElementById("gif-search")?.scrollIntoView({ behavior: "smooth" })}><Camera size={13} /> GIF / Banner Seç</Button>
+          <Button variant="outline" size="sm" onClick={() => document.getElementById("media-url")?.scrollIntoView({ behavior: "smooth" })}><Camera size={13} /> Görsel / Banner Seç</Button>
           </div>
         </div>
       </Card>
@@ -149,8 +153,8 @@ function ProfilePanel() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <SectionTitle>Kullanıcı adı</SectionTitle>
-            <Input value={profile.name} onChange={(e) => updateProfile({ name: e.target.value })} className="mt-2" />
-            <p className="mt-1.5 text-[10.5px] text-muted">3-20 karakter, boşluk yok.</p>
+            <Input value={draft.name} onChange={(e) => queueName(e.target.value)} className="mt-2" />
+            <p className="mt-1.5 text-[10.5px] text-muted">3-32 karakter, boşluk yok. Geçerli olunca kaydedilir.</p>
           </div>
           <div>
             <SectionTitle>Etiket</SectionTitle>
@@ -159,16 +163,21 @@ function ProfilePanel() {
           </div>
         </div>
         <div className="mt-5">
-          <div className="flex items-center justify-between"><SectionTitle>Hakkımda</SectionTitle><span className="text-[10px] text-muted tabular">{bio.length} / 190</span></div>
-          <Textarea value={bio} maxLength={190} onChange={(e) => { setBio(e.target.value); updateProfile({ bio: e.target.value }); }} className="mt-2" rows={3} />
+          <SectionTitle>Hitap / Unvan</SectionTitle>
+          <Input value={draft.title} maxLength={60} onChange={(e) => queue({ title: e.target.value })} className="mt-2" placeholder="Örn. Oyun Kurucu, Owner, Tasarımcı" />
+          <p className="mt-1.5 text-[10.5px] text-muted">Adının yanında rozet gibi görünür.</p>
+        </div>
+        <div className="mt-5">
+          <div className="flex items-center justify-between"><SectionTitle>Hakkımda</SectionTitle><span className="text-[10px] text-muted tabular">{draft.bio.length} / 190</span></div>
+          <Textarea value={draft.bio} maxLength={190} onChange={(e) => queue({ bio: e.target.value })} className="mt-2" rows={3} />
         </div>
         <div className="mt-5">
           <SectionTitle>Durumun</SectionTitle>
-          <div className="mt-2"><Chips options={["Çevrimiçi", "Boşta", "Rahatsız Etme", "Görünmez"]} value={{ online: "Çevrimiçi", idle: "Boşta", dnd: "Rahatsız Etme", offline: "Görünmez" }[profile.status]} onChange={(v) => updateProfile({ status: ({ "Çevrimiçi": "online", "Boşta": "idle", "Rahatsız Etme": "dnd", "Görünmez": "offline" } as const)[v] })} /></div>
+          <div className="mt-2"><Chips options={["Çevrimiçi", "Boşta", "Rahatsız Etme", "Görünmez"]} value={{ online: "Çevrimiçi", idle: "Boşta", dnd: "Rahatsız Etme", offline: "Görünmez" }[draft.status]} onChange={(v) => save({ status: ({ "Çevrimiçi": "online", "Boşta": "idle", "Rahatsız Etme": "dnd", "Görünmez": "offline" } as const)[v] })} /></div>
         </div>
         <div className="mt-5">
           <SectionTitle>Özel durum mesajı</SectionTitle>
-          <Input value={profile.customStatus} onChange={(e) => updateProfile({ customStatus: e.target.value })} className="mt-2" />
+          <Input value={draft.customStatus} onChange={(e) => queue({ customStatus: e.target.value })} className="mt-2" />
           <p className="mt-1.5 text-[10.5px] text-muted">Profilinde adının altında görünür.</p>
         </div>
         <div className="mt-5">
@@ -177,41 +186,27 @@ function ProfilePanel() {
             {profileColors.map((color) => (
               <button
                 key={color}
-                onClick={() => updateProfile({ color })}
-                className={cn("grid h-10 w-10 place-items-center rounded-full border-2 transition hover:scale-110", profile.color === color ? "border-paper" : "border-transparent")}
+                onClick={() => save({ color })}
+                className={cn("grid h-10 w-10 place-items-center rounded-full border-2 transition hover:scale-110", draft.color === color ? "border-paper" : "border-transparent")}
                 style={{ background: color }}
               >
-                {profile.color === color && <Check size={15} className="text-ink" />}
+                {draft.color === color && <Check size={15} className="text-ink" />}
               </button>
             ))}
           </div>
         </div>
       </Card>
 
-      <Card id="gif-search">
-        <SectionTitle>Profil GIF ve Banner</SectionTitle>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted">Tenor API anahtarınla ücretsiz GIF ara; avatar veya banner olarak kullan. Doğrudan GIF URL’si de yapıştırabilirsin.</p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-          <Input aria-label="Tenor API anahtarı" type="password" value={tenorKey} onChange={(e) => setTenorKey(e.target.value)} placeholder="Tenor API key" />
-          <Input aria-label="GIF arama" value={gifQuery} onChange={(e) => setGifQuery(e.target.value)} placeholder="dance, cat, gaming…" />
-          <Button variant="outline" disabled={gifLoading} onClick={() => void searchGifs()}><Search size={13} /> Ara</Button>
+      <Card id="media-url">
+        <SectionTitle>Profil Görseli ve Banner</SectionTitle>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted">Doğrudan görsel veya GIF bağlantısı yapıştır. Dosya yüklemek için kendi CDN’ini ya da görsel barındırıcısını kullanabilirsin.</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <Input aria-label="Avatar görsel URL" value={draft.avatarUrl} onChange={(e) => queue({ avatarUrl: e.target.value })} placeholder="Avatar görsel URL" />
+          <Input aria-label="Banner görsel URL" value={draft.bannerUrl} onChange={(e) => queue({ bannerUrl: e.target.value })} placeholder="Banner görsel URL" />
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <Input aria-label="Avatar GIF URL" value={profile.avatarUrl} onChange={(e) => updateProfile({ avatarUrl: e.target.value })} placeholder="Avatar GIF URL" />
-          <Input aria-label="Banner GIF URL" value={profile.bannerUrl} onChange={(e) => updateProfile({ bannerUrl: e.target.value })} placeholder="Banner GIF URL" />
-        </div>
-        {gifs.length > 0 && (
-          <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto pb-1">
-            {gifs.map((url) => (
-              <div key={url} className="flex shrink-0 flex-col gap-1">
-                <button onClick={() => updateProfile({ avatarUrl: url })} className="relative h-20 w-28 overflow-hidden rounded-xl border border-white/10 transition hover:border-brand"><img src={url} alt="GIF" className="h-full w-full object-cover" /><span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[8px] font-bold">Avatar</span></button>
-                <button onClick={() => updateProfile({ bannerUrl: url })} className="relative h-6 w-28 overflow-hidden rounded-lg border border-white/10 transition hover:border-lime"><img src={url} alt="Banner" className="h-full w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-black/45 text-[8px] font-bold">Banner</span></button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="mt-3 flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => updateProfile({ avatarUrl: "", bannerUrl: "" })}><ImageIcon size={12} /> Varsayalana Dön</Button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={() => save({ avatarUrl: "", bannerUrl: "" })}><ImageIcon size={12} /> Varsayalana Dön</Button>
+          <Button variant="outline" size="sm" onClick={() => save({ bannerUrl: `linear-gradient(120deg, ${draft.color}66, #17141f)` })}>Renkli banner</Button>
         </div>
       </Card>
 
@@ -219,11 +214,11 @@ function ProfilePanel() {
         <SectionTitle>Rich Presence</SectionTitle>
         <p className="mt-1 text-[11px] leading-relaxed text-muted">Oyun veya müzik durumunu profilinde ve dock’ta göster. Bu alan yalnızca senin seçtiğin bilgiyi paylaşır.</p>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <Input aria-label="Aktivite metni" value={profile.activity} onChange={(e) => updateProfile({ activity: e.target.value })} placeholder="Örn. Valorant oynuyor" />
+          <Input aria-label="Aktivite metni" value={draft.activity} onChange={(e) => queue({ activity: e.target.value })} placeholder="Örn. Valorant oynuyor" />
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => updateProfile({ activity: "Valorant oynuyor" })}><Gamepad2 size={12} /> Oyun</Button>
-            <Button variant="outline" size="sm" onClick={() => updateProfile({ activity: "Spotify’da müzik dinliyor" })}><Music2 size={12} /> Müzik</Button>
-            <Button variant="ghost" size="sm" onClick={() => updateProfile({ activity: "" })}>Temizle</Button>
+            <Button variant="outline" size="sm" onClick={() => save({ activity: "Valorant oynuyor" })}><Gamepad2 size={12} /> Oyun</Button>
+            <Button variant="outline" size="sm" onClick={() => save({ activity: "Spotify’da müzik dinliyor" })}><Music2 size={12} /> Müzik</Button>
+            <Button variant="ghost" size="sm" onClick={() => save({ activity: "" })}>Temizle</Button>
           </div>
         </div>
       </Card>
@@ -244,20 +239,66 @@ function ProfilePanel() {
 }
 
 function AccountPanel() {
+  const user = useApp((s) => s.user);
+  const [sessions, setSessions] = useState<{ id: string; createdAt: string; expiresAt: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setSessions(await api.sessions());
+    } catch {
+      toast.error("Oturumlar yüklenemedi");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function closeSession(id: string) {
+    setBusyId(id);
+    try {
+      await api.deleteSession(id);
+      setSessions((list) => list.filter((x) => x.id !== id));
+      toast.success("Oturum kapatıldı");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Oturum kapatılamadı");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
-    <Panel title="Hesap" description="E-posta, şifre ve hesabınla ilgili her şey.">
+    <Panel title="Hesap" description="E-posta, şifre ve oturum yönetimi.">
       <Card>
-        <Row icon={AtSign} title="E-posta" description="Doğrulandı. Değiştirirsen tekrar doğrulaman gerekir."><Button variant="outline" size="sm">Değiştir</Button></Row>
-        <Row icon={Smartphone} title="Telefon (isteğe bağlı)" description="+90 5XX XXX XX XX"><Button variant="outline" size="sm">Ekle</Button></Row>
-        <Row icon={Lock} title="Şifre" description="Güçlü bir şifre kullan, kimseyle paylaşma."><Button variant="outline" size="sm" onClick={() => toast("Şifre değiştirme yakında")}>Şifre Değiştir</Button></Row>
-        <Row icon={Shield} title="İki faktörlü doğrulama" description="Hesabını ekstra güvenlik katmanıyla koru."><Button variant="lime" size="sm" onClick={() => toast.success("2FA etkinleştirildi")}>Aç</Button></Row>
+        <Row icon={AtSign} title="E-posta" description={user?.email || "—"}><span /></Row>
+        <Row icon={Shield} title="İki faktörlü doğrulama" description="Hesabını ekstra güvenlik katmanıyla koru."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
       </Card>
       <Card>
-        <SectionTitle>Oturumlar</SectionTitle>
-        <p className="mt-1 text-[11px] text-muted">Hesabın hangi cihazlarda açık.</p>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <SectionTitle>Oturumlar</SectionTitle>
+            <p className="mt-1 text-[11px] text-muted">Hesabının açık oturumları.</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={13} /> Yenile</Button>
+        </div>
         <div className="mt-4 space-y-2">
-          <div className="flex items-center gap-3 rounded-card bg-white/[.04] p-3"><Monitor size={17} className="text-brand" /><div className="flex-1"><p className="text-[12px] font-bold">Windows • Chrome</p><p className="text-[10px] text-muted">Şu an aktif • Bursa, TR</p></div><Badge className="border-lime/30 bg-lime/10 text-lime">BU CİHAZ</Badge></div>
-          <div className="flex items-center gap-3 rounded-card bg-white/[.04] p-3"><Smartphone size={17} className="text-muted" /><div className="flex-1"><p className="text-[12px] font-bold">Android • SlopSound App</p><p className="text-[10px] text-muted">2 saat önce • İstanbul, TR</p></div><Button variant="ghost" size="sm" onClick={() => toast("Oturum kapatıldı")}>Kapat</Button></div>
+          {loading ? (
+            <p className="text-[11px] text-muted">Yükleniyor...</p>
+          ) : sessions.length === 0 ? (
+            <p className="text-[11px] text-muted">Açık oturum bulunamadı.</p>
+          ) : sessions.map((session) => (
+            <div key={session.id} className="flex items-center gap-3 rounded-card bg-white/[.04] p-3">
+              <Monitor size={17} className="text-muted" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12px] font-bold">Oturum {session.id.slice(0, 8)}</p>
+                <p className="text-[10px] text-muted">Oluşturma: {new Date(session.createdAt).toLocaleString("tr-TR")} • Bitiş: {new Date(session.expiresAt).toLocaleString("tr-TR")}</p>
+              </div>
+              <Button variant="ghost" size="sm" disabled={busyId === session.id} onClick={() => void closeSession(session.id)}>Kapat</Button>
+            </div>
+          ))}
         </div>
       </Card>
     </Panel>
@@ -306,6 +347,8 @@ function AppearancePanel() {
   const setDensity = useApp((s) => s.setDensity);
   const reduceMotion = useApp((s) => s.reduceMotion);
   const setReduceMotion = useApp((s) => s.setReduceMotion);
+  const focusMode = useApp((s) => s.focusMode);
+  const toggleFocusMode = useApp((s) => s.toggleFocusMode);
   const [theme, setTheme] = useState("Koyu + Mor");
   const [fontSize, setFontSize] = useState("Normal");
   return (
@@ -329,6 +372,7 @@ function AppearancePanel() {
         <div className="mt-5">
           <ToggleRow icon={Palette} title="Kompakt mod" description="Mesajlar daha sıkı görünür, daha çok mesaj sığar." checked={density === "compact"} onCheckedChange={(v) => setDensity(v ? "compact" : "comfortable")} />
           <ToggleRow icon={Palette} title="Hareketleri azalt" description="Animasyonları kapat, daha hızlı hissettir." checked={reduceMotion} onCheckedChange={setReduceMotion} />
+          <ToggleRow icon={Focus} title="Odak modu" description="Okunmayan rozetlerini gizler, dikkatini dağıtmaz." checked={focusMode} onCheckedChange={toggleFocusMode} />
         </div>
       </Card>
     </Panel>
@@ -613,9 +657,6 @@ function ShortcutsPanel() {
         <Row icon={Bell} title="Test bildirimi" description="Tauri Notification ile masaüstü bildirimi gönder.">
           <Button variant="outline" size="sm" onClick={() => void notify("SlopSound", "Bildirim sistemi çalışıyor.")}>Gönder</Button>
         </Row>
-        <Row icon={Keyboard} title="Panoya kopyala" description="Davet kodunu Tauri Clipboard ile kopyala.">
-          <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText("SLOP-0420").then(() => toast.success("Kopyalandı"))}>Kopyala</Button>
-        </Row>
         <p className="mt-2 text-[9.5px] text-muted/70">Sistem tepsesi simgesi, pencere yönetimi ve updater zaten native katmanda aktif.</p>
       </Card>
     </Panel>
@@ -624,36 +665,31 @@ function ShortcutsPanel() {
 
 function StoragePanel() {
   return (
-    <Panel title="Depolama" description="SlopSound cihazında ne kadar yer kaplıyor.">
+    <Panel title="Depolama" description="Depolama ve yerel veriler.">
       <Card>
-        <div className="flex items-end justify-between"><SectionTitle>Toplam kullanım</SectionTitle><span className="font-display text-[28px] font-extrabold">412 <span className="text-[14px] text-muted">MB</span></span></div>
-        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-[41%] rounded-full bg-gradient-to-r from-brand to-lime" /></div>
-        <p className="mt-2 text-[10.5px] text-muted">Önbellek 268 MB • İndirilenler 144 MB</p>
-      </Card>
-      <Card>
-        <Row icon={Trash2} title="Önbelleği temizle" description="Geçici dosyalar silinir, mesajların etkilenmez."><Button variant="outline" size="sm" onClick={() => toast.success("Önbellek temizlendi")}>Temizle</Button></Row>
-        <Row icon={HardDrive} title="İndirilenleri sil" description="İndirdiğin dosyalar cihazdan kaldırılır."><Button variant="outline" size="sm" onClick={() => toast("İndirilenler silindi")}>Sil</Button></Row>
+        <SectionTitle>Depolama kullanımı</SectionTitle>
+        <p className="mt-2 text-[11.5px] leading-relaxed text-muted">Depolama kullanım verisi şu anda mevcut değil.</p>
       </Card>
     </Panel>
   );
 }
 
 function DangerPanel() {
+  async function logoutOthers() {
+    try {
+      const result = await api.deleteAllSessions();
+      toast.success(`${result.removed} oturum kapatıldı`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Oturumlar kapatılamadı");
+    }
+  }
+
   return (
     <Panel title="Tehlikeli Bölge" description="Dikkat, bunlar geri alınamaz.">
       <Card className="border-danger/20">
-        <Row icon={LogOut} title="Hesabı devre dışı bırak" description="Hesabın 30 gün askıya alınır, sonra istersen geri açarsın."><Button variant="danger" size="sm" onClick={() => toast("Hesap devre dışı bırakıldı")}>Devre Dışı Bırak</Button></Row>
-        <Row icon={TriangleAlert} title="Hesabı kalıcı olarak sil" description="Tüm mesajların, sunucuların, arkadaşların silinir. Geri dönüş yok.">
-          <Dialog>
-            <DialogTrigger asChild><Button variant="danger" size="sm">Hesabı Sil</Button></DialogTrigger>
-            <DialogContent>
-              <h3 className="font-display text-[19px] font-extrabold">Emin misin?</h3>
-              <p className="mt-2 text-[12.5px] leading-relaxed text-muted">Hesabın kalıcı olarak silinecek. Bu işlem geri alınamaz.</p>
-              <div className="mt-6 flex justify-end gap-2"><Button variant="ghost" onClick={() => toast("İşlem iptal edildi")}>Vazgeç</Button><Button variant="danger" onClick={() => toast.error("Bu bir prototip, hesabın silinmedi")}>Evet, sil</Button></div>
-            </DialogContent>
-          </Dialog>
-        </Row>
-        <Row icon={LogOut} title="Tüm cihazlardan çıkış yap" description="Şu anki cihaz dahil her yerden çıkış yaparsın."><Button variant="danger" size="sm" onClick={() => toast("Tüm cihazlardan çıkış yapıldı")}>Her Yerden Çıkış Yap</Button></Row>
+        <Row icon={LogOut} title="Hesabı devre dışı bırak" description="Bu işlem şu anda kullanılamıyor."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
+        <Row icon={TriangleAlert} title="Hesabı kalıcı olarak sil" description="Bu işlem şu anda kullanılamıyor."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
+        <Row icon={LogOut} title="Diğer cihazlardan çıkış yap" description="Bu cihazdaki oturum açık kalır, diğer oturumlar kapatılır."><Button variant="danger" size="sm" onClick={() => void logoutOthers()}>Diğer Oturumları Kapat</Button></Row>
       </Card>
     </Panel>
   );
@@ -706,10 +742,87 @@ function PerformancePanel() {
   );
 }
 
+const integrations = [
+  { id: "youtube", label: "YouTube", icon: Youtube, hint: "Kanalını veya oynatma listeni profiline bağla." },
+  { id: "spotify", label: "Spotify", icon: Music2, hint: "Şu an dinlediğin parçayı durum olarak göster." },
+  { id: "apple-music", label: "Apple Music", icon: Music2, hint: "Apple Music kitaplığını profiline ekle." },
+  { id: "steam", label: "Steam", icon: Gamepad2, hint: "Oynadığın oyunları Rich Presence olarak paylaş." },
+  { id: "roblox", label: "Roblox", icon: Boxes, hint: "Roblox profilini ve oyun durumunu bağla." },
+];
+
+function IntegrationsPanel() {
+  const [links, setLinks] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("slopsound-integrations") ?? "{}") as Record<string, string>; }
+    catch { return {}; }
+  });
+  const [draft, setDraft] = useState<Record<string, string>>(links);
+
+  function save(id: string, label: string) {
+    const next = { ...links, [id]: draft[id] ?? "" };
+    setLinks(next);
+    localStorage.setItem("slopsound-integrations", JSON.stringify(next));
+    toast.success(`${label} bağlantısı kaydedildi`);
+  }
+
+  return (
+    <Panel title="Entegrasyonlar" description="Dış servisleri profiline bağla. Bağlantılar bu cihazda saklanır.">
+      <Card>
+        <p className="text-[11px] leading-relaxed text-muted">OAuth sunucu anahtarları eklendiğinde bu alan otomatik olarak gerçek hesap bağlantısına geçecek. Şimdilik profil bağlantını kaydedebilirsin.</p>
+        <div className="mt-4 space-y-1">
+          {integrations.map(({ id, label, icon: Icon, hint }) => (
+            <div key={id} className="flex flex-col gap-2 border-b border-white/[.06] py-4 last:border-0 sm:flex-row sm:items-center">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] bg-brand/12 text-brand"><Icon size={16} /></div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] font-bold">{label} {links[id] && <span className="ml-1 rounded-full bg-lime/15 px-1.5 py-0.5 text-[8px] font-black text-lime">BAĞLI</span>}</p>
+                <p className="mt-0.5 text-[11px] text-muted">{hint}</p>
+              </div>
+              <div className="flex gap-2">
+                <Input aria-label={`${label} profil bağlantısı`} value={draft[id] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [id]: e.target.value }))} placeholder="Profil bağlantısı" className="w-full sm:w-[220px]" />
+                <Button variant="outline" size="sm" onClick={() => save(id, label)}>Bağla</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </Panel>
+  );
+}
+
+function RemoteControlPanel() {
+  const [enabled, setEnabled] = useState(false);
+  const [keyboard, setKeyboard] = useState(true);
+  const [mouse, setMouse] = useState(true);
+  const [adminsOnly, setAdminsOnly] = useState(true);
+  const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
+
+  return (
+    <Panel title="Uzaktan Kontrol" description="Ekran paylaşımı sırasında katılımcıların cihazını kontrol etmesine izin ver.">
+      <Card>
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-brand/20 bg-brand/[.07] p-4">
+          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-brand/15 text-brand"><MousePointer2 size={18} /></div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-extrabold">Oturum kodu</p>
+            <p className="mt-0.5 text-[11px] text-muted">Katılımcılar bu kodla kontrol isteği gönderir.</p>
+          </div>
+          <code className="rounded-xl bg-black/30 px-3 py-2 font-display text-[15px] font-black tracking-[.2em] text-brand">{code}</code>
+          <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard?.writeText(code); toast.success("Kod kopyalandı"); }}>Kopyala</Button>
+        </div>
+        <div className="mt-4 space-y-1">
+          <ToggleRow icon={MousePointer2} title="Uzaktan kontrolü etkinleştir" description="Deneysel: yalnızca ekran paylaşırken çalışır." checked={enabled} onCheckedChange={setEnabled} />
+          <ToggleRow icon={Keyboard} title="Klavye girişine izin ver" description="Katılımcılar klavye olaylarını iletebilir." checked={keyboard} onCheckedChange={setKeyboard} />
+          <ToggleRow icon={MousePointer2} title="Fare girişine izin ver" description="İmleç hareketi ve tıklamalar iletilebilir." checked={mouse} onCheckedChange={setMouse} />
+          <ToggleRow icon={ShieldCheck} title="Sadece yöneticiler" description="Kontrol yetkisini sunucu yöneticileriyle sınırla." checked={adminsOnly} onCheckedChange={setAdminsOnly} />
+        </div>
+        {!enabled && <p className="mt-4 text-[10.5px] text-muted">Kontrol kapalı. Açtığında oturum kodu geçerli olur.</p>}
+      </Card>
+    </Panel>
+  );
+}
+
 const panels: Record<string, React.ComponentType> = {
   "Profilim": ProfilePanel, "Hesap": AccountPanel, "Gizlilik": PrivacyPanel, "Bildirimler": NotificationPanel,
   "Görünüm": AppearancePanel, "Ses ve Video": AudioPanel, "Performans": PerformancePanel, "Dil": LanguagePanel,
-  "Klavye Kısayolları": ShortcutsPanel, "Depolama": StoragePanel, "Tehlikeli Bölge": DangerPanel,
+  "Entegrasyonlar": IntegrationsPanel, "Uzaktan Kontrol": RemoteControlPanel, "Klavye Kısayolları": ShortcutsPanel, "Depolama": StoragePanel, "Tehlikeli Bölge": DangerPanel,
 };
 
 export function Settings() {
@@ -725,7 +838,6 @@ export function Settings() {
         <span className="font-display text-[13px] font-extrabold">Ayarlar</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden text-[10.5px] text-muted sm:inline">Değişiklikler anında kaydedilir</span>
-          <Button size="sm" onClick={() => toast.success("Tüm değişiklikler kaydedildi")}><Save size={13} /> Kaydet</Button>
         </div>
       </div>
       <div className="no-scrollbar flex-1 overflow-y-auto">

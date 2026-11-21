@@ -10,6 +10,7 @@ import { useVideo } from "@/lib/video";
 import { useLiveKit } from "@/lib/livekit";
 import { useShortcuts } from "@/lib/shortcuts";
 import { isTauri } from "@/lib/native";
+import { useAutoUpdate } from "@/lib/autoupdate";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatPanel } from "./components/ChatPanel";
@@ -25,6 +26,10 @@ import { PerfProfiler } from "./components/PerfProfiler";
 import { AuthScreen } from "./components/AuthScreen";
 import { Launcher } from "./components/Launcher";
 import { SlopCompanion } from "./components/SlopCompanion";
+import { DynamicIsland } from "./components/DynamicIsland";
+import { ScreenSharePip } from "./components/ScreenSharePip";
+import { ChannelPeek } from "./components/ChannelPeek";
+import { WhatsNew } from "./components/WhatsNew";
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
@@ -72,6 +77,9 @@ export default function App() {
   const accent = useApp((s) => s.accent);
   const density = useApp((s) => s.density);
   const reduceMotion = useApp((s) => s.reduceMotion);
+  const focusMode = useApp((s) => s.focusMode);
+  const servers = useApp((s) => s.servers);
+  const activeServer = useApp((s) => s.activeServer);
   const setView = useApp((s) => s.setView);
   const setSidebarTab = useApp((s) => s.setSidebarTab);
   const toggleMic = useApp((s) => s.toggleMic);
@@ -82,6 +90,8 @@ export default function App() {
   const launcherOpen = useApp((s) => s.launcherOpen);
   const setLauncherOpen = useApp((s) => s.setLauncherOpen);
   const initAuth = useApp((s) => s.initAuth);
+
+  useAutoUpdate();
 
   useEffect(() => { void initAuth(); }, [initAuth]);
 
@@ -117,6 +127,30 @@ export default function App() {
     document.documentElement.style.setProperty("--reduce-motion", reduceMotion ? "1" : "0");
     document.documentElement.classList.toggle("reduce-motion", reduceMotion);
   }, [accent, density, reduceMotion]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("focus-mode", focusMode);
+  }, [focusMode]);
+
+  useEffect(() => {
+    const server = servers.find((item) => item.id === activeServer);
+    if (!server?.color) return;
+    document.documentElement.style.setProperty("--ambient-1", `${server.color}22`);
+    document.documentElement.style.setProperty("--ambient-2", `${server.color}0d`);
+  }, [servers, activeServer]);
+
+  useEffect(() => {
+    function onPointerMove(event: PointerEvent) {
+      const target = event.target as HTMLElement | null;
+      const card = target?.closest(".glass-card") as HTMLElement | null;
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      card.style.setProperty("--mouse-x", `${event.clientX - rect.left}px`);
+      card.style.setProperty("--mouse-y", `${event.clientY - rect.top}px`);
+    }
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onPointerMove);
+  }, []);
 
   useEffect(() => {
     const refresh = () => {
@@ -188,7 +222,15 @@ export default function App() {
               </motion.div>
             </AnimatePresence>
           </div>
-          {view === "app" && <Dock />}
+          {view === "app" && (
+            <>
+              <Dock />
+              <DynamicIsland />
+              <ScreenSharePip />
+              <ChannelPeek />
+            </>
+          )}
+          <WhatsNew />
           <Toaster
             position="bottom-center"
             offset={view === "app" ? 84 : 24}

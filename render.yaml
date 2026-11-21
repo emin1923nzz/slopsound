@@ -24,6 +24,8 @@ services:
         value: none
       - key: OAUTH_REDIRECT_TO
         value: https://slopsound.onrender.com
+      - key: UPDATE_MANIFEST_URL
+        value: https://github.com/emin1923nzz/slopsound/releases/latest/download/latest.json
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

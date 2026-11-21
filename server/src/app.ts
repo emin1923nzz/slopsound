@@ -289,6 +289,23 @@ export function buildApp() {
     return db.select().from(auditLogs).where(eq(auditLogs.serverId, id)).orderBy(desc(auditLogs.createdAt)).limit(200);
   });
 
+  let updateManifest: { value: unknown; cachedAt: number } | null = null;
+
+  app.get("/updates/:target/:arch/:current_version", async (_request, reply) => {
+    try {
+      if (!updateManifest || Date.now() - updateManifest.cachedAt > 5 * 60 * 1000) {
+        const response = await fetch(env.UPDATE_MANIFEST_URL, {
+          headers: { "user-agent": "slopsound-updater" },
+        });
+        if (!response.ok) return reply.code(204).send();
+        updateManifest = { value: await response.json(), cachedAt: Date.now() };
+      }
+      return reply.type("application/json").send(updateManifest.value);
+    } catch {
+      return reply.code(204).send();
+    }
+  });
+
   registerRoutes(app);
 
   return app;

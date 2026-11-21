@@ -1,6 +1,7 @@
-export type BadgeId = "founder" | "year_1" | "year_2" | "year_3" | "year_4" | "year_5";
+export type BadgeId = "owner" | "founder" | "year_1" | "year_2" | "year_3" | "year_4" | "year_5";
 
 export const BADGE_LABELS: Record<BadgeId, string> = {
+  owner: "Owner",
   founder: "Kurucu",
   year_1: "1 Yıllık",
   year_2: "2 Yıllık",

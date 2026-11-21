@@ -6,7 +6,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const isTauri = () =>
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  typeof window !== "undefined" &&
+  ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 
 export const timeNow = () =>
   new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });

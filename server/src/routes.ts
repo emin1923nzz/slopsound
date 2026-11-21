@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, gte, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { db } from "./db.js";
-import { redis } from "./redis.js";
+import { clearUnread, getPresence, getUnread, redis } from "./redis.js";
 import { getSessionUser, publicUser, tokenFromRequest } from "./auth.js";
 import { canAccessChannel, createVoiceToken } from "./livekit.js";
-import { emitMessage, emitReaction } from "./socket.js";
+import { channelRecipientIds, emitMessage, emitReaction, incrementUnreadForMessage } from "./socket.js";
 import { maybeSunlopReply } from "./bot.js";
 import { userBadges } from "./badges.js";
 import {
@@ -18,14 +18,26 @@ function formatTime(date: Date) {
   return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function relativeTime(date: Date) {
+  const diff = Date.now() - date.getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (diff < minute) return "Şimdi";
+  if (diff < hour) return `${Math.max(1, Math.floor(diff / minute))} dk`;
+  if (diff < day) return `${Math.max(1, Math.floor(diff / hour))} sa`;
+  if (diff < 7 * day) return `${Math.max(1, Math.floor(diff / day))} gün`;
+  return date.toLocaleDateString("tr-TR");
+}
+
 function requireAuth(request: FastifyRequest) {
   return getSessionUser(tokenFromRequest(request));
 }
 
 async function userServers(userId: string) {
-  const owned = await db.select({ id: servers.id, name: servers.name, color: servers.color })
+  const owned = await db.select({ id: servers.id, name: servers.name, color: servers.color, ownerId: servers.ownerId })
     .from(servers).where(eq(servers.ownerId, userId));
-  const joined = await db.select({ id: servers.id, name: servers.name, color: servers.color })
+  const joined = await db.select({ id: servers.id, name: servers.name, color: servers.color, ownerId: servers.ownerId })
     .from(servers)
     .innerJoin(serverMembers, eq(serverMembers.serverId, servers.id))
     .where(eq(serverMembers.userId, userId));
@@ -70,12 +82,21 @@ async function mapMessages(channelId: string, viewerId: string) {
     text: message.body,
     mention: message.body.includes("@"),
     ai: Boolean(author.bot),
-    badges: userBadges(author.createdAt, author.username),
+    badges: userBadges(author.createdAt, author.username, author.tag),
     reactions: message.reactions,
     audioUrl: message.audioUrl ?? undefined,
     duration: message.duration ? Number(message.duration) : undefined,
     own: author.id === viewerId,
   }));
+}
+
+async function mutualServerCount(userId: string, peerId: string) {
+  const [mine, theirs] = await Promise.all([
+    userServers(userId),
+    userServers(peerId),
+  ]);
+  const theirIds = new Set(theirs.map((s) => s.id));
+  return mine.filter((s) => theirIds.has(s.id)).length;
 }
 
 export function registerRoutes(app: FastifyInstance) {
@@ -84,6 +105,10 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "unauthorized" });
 
     const serverList = await userServers(user.id);
+    const presenceFor = async (id: string, fallback: string) => {
+      const p = await getPresence(id);
+      return p === "online" ? (fallback === "offline" ? "online" : fallback) : "offline";
+    };
 
     const groupMap = new Map<string, {
       id: string; name: string; type: string; description: string;
@@ -93,14 +118,18 @@ export function registerRoutes(app: FastifyInstance) {
       const rows = await db.select().from(channels)
         .where(eq(channels.serverId, server.id))
         .orderBy(channels.position);
-      rows.forEach((row) => {
+      for (const row of rows) {
         const list = groupMap.get(row.groupLabel) ?? [];
+        const recipients = await channelRecipientIds(row.id);
+        const presences = await Promise.all(recipients.map((id) => getPresence(id)));
+        const people = presences.filter((p) => p === "online").length;
         list.push({
           id: row.id, name: row.name, type: row.type, description: row.description,
-          serverId: row.serverId, unread: 0, live: false, people: 0,
+          serverId: row.serverId, unread: await getUnread(user.id, row.id),
+          live: row.type === "voice" ? people > 0 : false, people,
         });
         groupMap.set(row.groupLabel, list);
-      });
+      }
     }
     const channelGroups = [...groupMap.entries()].map(([label, list]) => ({ label, channels: list }));
 
@@ -124,52 +153,69 @@ export function registerRoutes(app: FastifyInstance) {
         .where(eq(messages.channelId, channel.id))
         .orderBy(desc(messages.createdAt))
         .limit(1);
-      const unread = Number((await redis.get(`unread:${user.id}:${channel.id}`)) ?? 0);
       dms.push({
         id: channel.id,
         peerId: peer.id,
         name: peer.username,
-        status: peer.status,
+        status: peer.bot ? peer.status : await presenceFor(peer.id, peer.status),
         preview: last?.body ?? "Yeni sohbet",
         time: last ? formatTime(last.createdAt) : "Şimdi",
-        unread,
+        unread: await getUnread(user.id, channel.id),
         ai: Boolean(peer.bot),
         group: false,
       });
     }
 
     const memberIds = new Set<string>([user.id]);
+    const roleByUserId = new Map<string, string>();
+    const roleRank: Record<string, number> = { owner: 4, admin: 3, moderator: 2, member: 1 };
+    const roleLabel: Record<string, string> = { owner: "Sahip", admin: "Admin", moderator: "Moderatör", member: "Üye" };
     for (const server of serverList) {
-      const rows = await db.select({ userId: serverMembers.userId })
+      if (server.ownerId === user.id) roleByUserId.set(user.id, "owner");
+      const rows = await db.select({ userId: serverMembers.userId, role: serverMembers.role })
         .from(serverMembers).where(eq(serverMembers.serverId, server.id));
-      rows.forEach((row) => memberIds.add(row.userId));
+      rows.forEach((row) => {
+        memberIds.add(row.userId);
+        const prev = roleByUserId.get(row.userId);
+        if (!prev || (roleRank[row.role] ?? 0) > (roleRank[prev] ?? 0)) roleByUserId.set(row.userId, row.role);
+      });
     }
     const bots = await db.select({ id: users.id }).from(users).where(eq(users.bot, 1));
     bots.forEach((row) => memberIds.add(row.id));
     const memberRows = memberIds.size
       ? await db.select().from(users).where(inArray(users.id, [...memberIds]))
       : [];
-    const members = memberRows.map((row) => ({
-      id: row.id,
-      name: row.username,
-      status: row.status as "online" | "idle" | "dnd" | "offline",
-      activity: row.activity || undefined,
-      color: row.avatarColor,
-      role: row.bot ? "AI" : row.status === "offline" ? "Çevrimdışı" : "Çevrimiçi",
-      bot: Boolean(row.bot),
-      badges: userBadges(row.createdAt, row.username),
+    const members = await Promise.all(memberRows.map(async (row) => {
+      const status = row.bot ? row.status : await presenceFor(row.id, row.status);
+      const role = row.bot ? "AI" : (roleByUserId.get(row.id) ? (roleLabel[roleByUserId.get(row.id)!] ?? roleByUserId.get(row.id)!) : (status === "offline" ? "Çevrimdışı" : "Üye"));
+      return {
+        id: row.id,
+        name: row.username,
+        status: status as "online" | "idle" | "dnd" | "offline",
+        activity: row.activity || undefined,
+        color: row.avatarColor,
+        role,
+        bot: Boolean(row.bot),
+        badges: userBadges(row.createdAt, row.username, row.tag),
+      };
     }));
 
-    const requestRows = await db.select({ id: friends.id, user: users })
+    const requestRows = await db.select({ friend: friends, user: users })
       .from(friends)
       .innerJoin(users, eq(users.id, friends.requesterId))
       .where(and(eq(friends.addresseeId, user.id), eq(friends.status, "pending")));
-    const friendRequests = requestRows.map((row) => ({
-      id: row.id,
-      name: `${row.user.username}#${row.user.tag}`,
-      source: "SlopSound",
-      mutual: "Ortak sunucu",
-      time: "Yeni",
+    const friendRequests = await Promise.all(requestRows.map(async ({ friend, user: peer }) => {
+      const mutual = await mutualServerCount(user.id, peer.id);
+      const [outgoing] = await db.select({ id: friends.id }).from(friends)
+        .where(and(eq(friends.requesterId, user.id), eq(friends.addresseeId, peer.id)))
+        .limit(1);
+      return {
+        id: friend.id,
+        name: `${peer.username}#${peer.tag}`,
+        source: outgoing ? "Karşılıklı istek" : "Arkadaş isteği",
+        mutual: mutual > 0 ? `${mutual} ortak sunucu` : "Ortak sunucu yok",
+        time: relativeTime(friend.createdAt),
+      };
     }));
 
     const since = new Date(Date.now() - 6 * 86_400_000);
@@ -194,6 +240,7 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     const parsed = z.object({
       name: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/).optional(),
+      title: z.string().max(60).optional(),
       customStatus: z.string().max(120).optional(),
       bio: z.string().max(190).optional(),
       color: z.string().max(32).optional(),
@@ -205,6 +252,7 @@ export function registerRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
     const patch: Record<string, unknown> = {};
     if (parsed.data.name !== undefined) patch.username = parsed.data.name;
+    if (parsed.data.title !== undefined) patch.title = parsed.data.title;
     if (parsed.data.customStatus !== undefined) patch.customStatus = parsed.data.customStatus;
     if (parsed.data.bio !== undefined) patch.bio = parsed.data.bio;
     if (parsed.data.color !== undefined) patch.avatarColor = parsed.data.color;
@@ -245,7 +293,8 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     const parsed = z.object({ username: z.string().min(3).max(32) }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
-    const [peer] = await db.select().from(users).where(eq(users.username, parsed.data.username)).limit(1);
+    const [peer] = await db.select().from(users)
+      .where(sql`lower(${users.username}) = ${parsed.data.username.toLowerCase()}`).limit(1);
     if (!peer || peer.id === user.id) return reply.code(404).send({ error: "user_not_found" });
 
     const existing = await db.select({ channelId: channelMembers.channelId })
@@ -266,7 +315,9 @@ export function registerRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     if (!uuid.safeParse(id).success) return reply.code(400).send({ error: "invalid_id" });
     if (!(await canAccessChannel(user.id, id))) return reply.code(403).send({ error: "forbidden" });
-    return mapMessages(id, user.id);
+    const list = await mapMessages(id, user.id);
+    await clearUnread(user.id, id);
+    return list;
   });
 
   app.post("/channels/:id/messages", async (request, reply) => {
@@ -291,6 +342,7 @@ export function registerRoutes(app: FastifyInstance) {
     const list = await mapMessages(id, user.id);
     const message = list[list.length - 1];
     if (message) emitMessage(id, message);
+    await incrementUnreadForMessage(id, user.id);
     await maybeSunlopReply(id, user.id, parsed.data.body, emitMessage);
     return reply.code(201).send(message);
   });
@@ -306,10 +358,27 @@ export function registerRoutes(app: FastifyInstance) {
     if (!row || !(await canAccessChannel(user.id, row.channelId))) {
       return reply.code(403).send({ error: "forbidden" });
     }
-    const reactions = (row.reactions ?? []) as { emoji: string; count: number }[];
-    const existing = reactions.find((item) => item.emoji === parsed.data.emoji);
-    if (existing) existing.count += 1;
-    else reactions.push({ emoji: parsed.data.emoji, count: 1 });
+    const stateKey = `reaction:${id}:${user.id}`;
+    const previous = await redis.get(stateKey);
+    const reactions = ((row.reactions ?? []) as { emoji: string; count: number }[]).map((r) => ({ ...r }));
+
+    if (previous) {
+      const prev = reactions.find((item) => item.emoji === previous);
+      if (prev) {
+        prev.count = Math.max(0, prev.count - 1);
+        if (prev.count === 0) reactions.splice(reactions.indexOf(prev), 1);
+      }
+    }
+
+    if (previous === parsed.data.emoji) {
+      await redis.del(stateKey);
+    } else {
+      const next = reactions.find((item) => item.emoji === parsed.data.emoji);
+      if (next) next.count += 1;
+      else reactions.push({ emoji: parsed.data.emoji, count: 1 });
+      await redis.set(stateKey, parsed.data.emoji);
+    }
+
     await db.update(messages).set({ reactions }).where(eq(messages.id, id));
     emitReaction(row.channelId, id, reactions);
     return { reactions };
@@ -320,7 +389,8 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     const parsed = z.object({ username: z.string().min(3).max(32) }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
-    const [peer] = await db.select().from(users).where(eq(users.username, parsed.data.username)).limit(1);
+    const [peer] = await db.select().from(users)
+      .where(sql`lower(${users.username}) = ${parsed.data.username.toLowerCase()}`).limit(1);
     if (!peer || peer.id === user.id) return reply.code(404).send({ error: "user_not_found" });
     await db.insert(friends).values({ requesterId: user.id, addresseeId: peer.id }).onConflictDoNothing();
     return { ok: true };

@@ -17,7 +17,8 @@ export type OAuthCallback = {
 };
 
 export function isTauri() {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return typeof window !== "undefined" &&
+    ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
 }
 
 export async function openExternal(url: string) {

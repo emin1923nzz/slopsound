@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export type VideoCodec = "vp8" | "vp9" | "h264";
-export type ResolutionId = "360p" | "480p" | "720p" | "1080p";
+export type ResolutionId = "360p" | "480p" | "720p" | "1080p" | "2160p";
 export type QualityId = "low" | "medium" | "high";
 export type ScreenSource = "monitor" | "window";
 
@@ -11,9 +11,10 @@ export const resolutions: { id: ResolutionId; label: string; width: number; heig
   { id: "480p", label: "480p • dengeli", width: 854, height: 480, bitrate: 1_200_000 },
   { id: "720p", label: "720p • net", width: 1280, height: 720, bitrate: 2_500_000 },
   { id: "1080p", label: "1080p • sinema", width: 1920, height: 1080, bitrate: 4_500_000 },
+  { id: "2160p", label: "4K • AAA", width: 3840, height: 2160, bitrate: 12_000_000 },
 ];
 
-export const fpsOptions = [15, 24, 30, 60] as const;
+export const fpsOptions = [15, 24, 30, 60, 120] as const;
 export const qualityOptions: { id: QualityId; label: string; multiplier: number }[] = [
   { id: "low", label: "Düşük • tasarruf", multiplier: 0.55 },
   { id: "medium", label: "Orta • önerilen", multiplier: 1 },

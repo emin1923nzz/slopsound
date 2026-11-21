@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Hash, Volume2, Megaphone, ChevronDown, Plus, Compass, Download, Search,
@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { useLiveKit } from "@/lib/livekit";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { SlopAvatar, SlopLogo } from "./SlopAvatar";
@@ -101,6 +102,7 @@ function ServerPanel() {
   const members = useApp((s) => s.members);
   const voiceChannelId = useApp((s) => s.voiceChannelId);
   const server = servers.find((s) => s.id === activeServer) ?? servers[0];
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   return (
     <>
@@ -113,34 +115,47 @@ function ServerPanel() {
       </button>
 
       <div className="no-scrollbar flex-1 overflow-y-auto pb-4">
-        {channelGroups.map((group) => (
-          <div key={group.label}>
-            <p className="category-label">{group.label}</p>
-            <div className="mt-1 space-y-[var(--row-gap)]">
-              {group.channels.map((channel) => {
-                const isVoice = channel.type === "voice";
-                const isActive = activeChannel === channel.id || (voiceConnected && voiceChannel === channel.name);
-                return (
-                  <button
-                    key={channel.id}
-                    onClick={() => (isVoice ? void joinVoice(channel.id) : selectChannel(channel.id))}
-                    className="channel-row group"
-                    data-active={isActive}
-                  >
-                    <span className="shrink-0 opacity-80"><ChannelIcon type={channel.type} /></span>
-                    <span className="min-w-0 flex-1 truncate text-left">{channel.name}</span>
-                    {channel.live && <span className="h-1.5 w-1.5 rounded-full bg-lime shadow-[0_0_8px_hsl(var(--lime)/.8)]" />}
-                    {channel.unread && <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{channel.unread}</span>}
-                    {isVoice && channel.people ? <span className="text-[10px] font-bold text-muted">{channel.people}</span> : null}
-                    {isVoice && voiceConnected && voiceChannelId === channel.id && (
-                      <span onClick={(e) => { e.stopPropagation(); leaveVoice(); }} className="grid h-5 w-5 place-items-center rounded-full bg-danger/20 text-danger"><XIcon /></span>
-                    )}
-                  </button>
-                );
-              })}
+        {channelGroups.map((group) => {
+          const isCollapsed = collapsed[group.label] ?? false;
+          return (
+            <div key={group.label}>
+              <button
+                onClick={() => setCollapsed((current) => ({ ...current, [group.label]: !isCollapsed }))}
+                className="category-label flex w-full items-center gap-1.5 text-left transition hover:text-paper"
+              >
+                <ChevronDown size={11} className={cn("transition-transform", isCollapsed && "-rotate-90")} />
+                <span className="min-w-0 flex-1 truncate">{group.label}</span>
+                <span className="tabular text-[9px] opacity-60">{group.channels.length}</span>
+              </button>
+              {!isCollapsed && (
+                <div className="mt-1 space-y-[var(--row-gap)]">
+                  {group.channels.map((channel) => {
+                    const isVoice = channel.type === "voice";
+                    const isActive = activeChannel === channel.id || (voiceConnected && voiceChannel === channel.name);
+                    return (
+                      <button
+                        key={channel.id}
+                        onClick={() => (isVoice ? void joinVoice(channel.id) : selectChannel(channel.id))}
+                        className="channel-row channel-item group"
+                        data-active={isActive}
+                        data-name={channel.name}
+                      >
+                        <span className="shrink-0 opacity-80"><ChannelIcon type={channel.type} /></span>
+                        <span className="min-w-0 flex-1 truncate text-left">{channel.name}</span>
+                        {channel.live && <span className="h-1.5 w-1.5 rounded-full bg-lime shadow-[0_0_8px_hsl(var(--lime)/.8)]" />}
+                        {channel.unread && <span className="unread-badge grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{channel.unread}</span>}
+                        {isVoice && channel.people ? <span className="text-[10px] font-bold text-muted">{channel.people}</span> : null}
+                        {isVoice && voiceConnected && voiceChannelId === channel.id && (
+                          <span onClick={(e) => { e.stopPropagation(); leaveVoice(); }} className="grid h-5 w-5 place-items-center rounded-full bg-danger/20 text-danger"><XIcon /></span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );
@@ -194,7 +209,7 @@ function DMPanel() {
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <span className="text-[9.5px] text-muted/70">{dm.time}</span>
                 {unreadDMs[dm.id] ? (
-                  <span className="grid h-[17px] min-w-[17px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{unreadDMs[dm.id]}</span>
+                  <span className="unread-badge grid h-[17px] min-w-[17px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{unreadDMs[dm.id]}</span>
                 ) : null}
               </div>
             </button>
@@ -222,14 +237,13 @@ function SunlopWidget() {
     >
       <span className="pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full bg-brand/20 blur-2xl" />
       <div className="relative flex items-start gap-3">
-        <SlopAvatar name="Sunlop" size={36} status="online" showDot />
+        <SlopAvatar name="Sunlop" size={36} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-[12px] font-extrabold">Sunlop</p>
             <span className="rounded-full bg-brand/25 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-brand">AI</span>
           </div>
-          <p className="mt-0.5 text-[10px] text-muted">Çevrimiçi • Asistanın</p>
-          <p className="mt-2 line-clamp-2 text-[11px] leading-snug text-paper/80">“Tasarım aaa seviye oldu, devam edelim mi?”</p>
+          <p className="mt-0.5 text-[10px] text-muted">AI asistanın</p>
           <p className="mt-2 flex items-center gap-1 text-[10.5px] font-bold text-brand transition group-hover:gap-2">Sunlop'a sor <span>→</span></p>
         </div>
       </div>
@@ -240,6 +254,7 @@ function SunlopWidget() {
 function VoiceStatus() {
   const voiceConnected = useApp((s) => s.voiceConnected);
   const voiceChannel = useApp((s) => s.voiceChannel);
+  const liveParticipants = useLiveKit((s) => s.participants);
   const micOn = useApp((s) => s.micOn);
   const camOn = useApp((s) => s.camOn);
   const toggleMic = useApp((s) => s.toggleMic);
@@ -264,7 +279,7 @@ function VoiceStatus() {
         </div>
         <button onClick={leaveVoice} className="text-[10px] font-bold text-muted hover:text-danger">Ayrıl</button>
       </div>
-      <p className="mt-1 pl-4 text-[10.5px] text-muted">{voiceChannel} • 4 kişi</p>
+      <p className="mt-1 pl-4 text-[10.5px] text-muted">{voiceChannel} • {liveParticipants.length + 1} kişi</p>
       <div className="mt-2.5 flex items-center gap-1.5 pl-1">
         <button onClick={toggleMic} className="icon-btn h-7 w-7" data-active={micOn} data-off={!micOn}>
           {micOn ? <Mic size={13} /> : <MicOff size={13} />}
@@ -282,7 +297,7 @@ export function Sidebar() {
   const sidebarTab = useApp((s) => s.sidebarTab);
   const setSidebarTab = useApp((s) => s.setSidebarTab);
   const unreadDMs = useApp((s) => s.unreadDMs);
-  const dmCount = Object.keys(unreadDMs).length + 1;
+  const dmCount = Object.values(unreadDMs).reduce((a, b) => a + b, 0);
 
   return (
     <div className="relative z-10 flex h-full shrink-0">
@@ -291,7 +306,7 @@ export function Sidebar() {
         <div className="no-drag flex items-center gap-1 px-3 pb-2 pt-3">
           {([
             ["servers", "Sunucular"],
-            ["dms", `DM • ${dmCount}`],
+            ["dms", dmCount > 0 ? `DM • ${dmCount}` : "DM"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
