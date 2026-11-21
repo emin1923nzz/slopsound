@@ -26,6 +26,7 @@ function ProfilePopover() {
   const statuses = ["online", "idle", "dnd", "offline"] as const;
   const level = useAudio((s) => s.level);
   const micOn = useApp((s) => s.micOn);
+  const displayName = profile.displayName || profile.name;
 
   return (
     <motion.div
@@ -39,15 +40,15 @@ function ProfilePopover() {
       <div className="-mt-7 px-5 pb-5">
       <div className="flex items-end gap-3">
         <div className="relative">
-          <SlopAvatar name={profile.name} size={56} status={profile.status} showDot className="ring-4 ring-[#17141f]" />
+          <SlopAvatar name={displayName} src={profile.avatarUrl} size={56} status={profile.status} showDot className="ring-4 ring-[#17141f]" />
           <SpeakingRing level={micOn ? level : 0} color={profile.color} size={56} />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <p className="truncate font-display text-[15px] font-extrabold">{profile.name}</p>
-            <BadgeChips badges={badges} compact />
-          </div>
-          <p className="text-[11px] text-muted">{profile.name}#{profile.tag}</p>
+              <p className="truncate font-display text-[15px] font-extrabold">{displayName}</p>
+              <BadgeChips badges={badges} compact />
+            </div>
+            <p className="truncate text-[11px] text-muted">{displayName} @{profile.name}#{profile.tag}</p>
             <p className="mt-0.5 text-[10.5px]" style={{ color: profile.color }}>{profile.customStatus}</p>
             {profile.activity && <p className="mt-0.5 truncate text-[9.5px] text-lime">{profile.activity}</p>}
           </div>
@@ -111,12 +112,12 @@ export function Dock() {
           className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition hover:bg-white/[.06]"
         >
           <div className="relative">
-            <SlopAvatar name={profile.name} size={36} status={profile.status} showDot />
+            <SlopAvatar name={profile.displayName || profile.name} src={profile.avatarUrl} size={36} status={profile.status} showDot />
             <SpeakingRing level={micOn ? level : 0} color={profile.color} size={36} />
           </div>
           <div className="hidden text-left sm:block">
             <div className="flex items-center gap-1.5">
-              <p className="max-w-[110px] truncate text-[11.5px] font-extrabold">{profile.name}</p>
+              <p className="max-w-[110px] truncate text-[11.5px] font-extrabold">{profile.displayName || profile.name}</p>
               <BadgeChips badges={badges} compact />
             </div>
             <p className="max-w-[130px] truncate text-[9.5px] text-muted">{statusLabel[profile.status]} • {profile.customStatus}</p>

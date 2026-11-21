@@ -26,8 +26,11 @@
   --gta-teal: rgba(0, 229, 255, .10);
   --radius-panel: 26px;
   --radius-card: 20px;
+  --ui-scale: 1;
   --ease: cubic-bezier(.32, .72, 0, 1);
 }
+
+html { font-size: calc(16px * var(--ui-scale)); }
 
 [data-accent="lime"] { --brand: 79 84% 65%; --lime: 252 100% 71%; --brand-rgb: 201, 242, 91; --lime-rgb: 139, 108, 255; }
 [data-accent="coral"] { --brand: 12 96% 68%; --lime: 41 100% 68%; --brand-rgb: 255, 116, 96; --lime-rgb: 255, 201, 92; }
@@ -43,6 +46,7 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
+  zoom: var(--ui-scale);
   background: hsl(var(--ink));
   color: hsl(var(--paper));
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "DM Sans Variable", "Segoe UI", sans-serif;
@@ -478,14 +482,13 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
 }
 .message-bubble {
   background: rgba(255, 255, 255, .055);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: .5px solid rgba(255, 255, 255, .12);
   padding: 9px 13px;
   border-radius: 18px 18px 18px 5px;
   color: hsl(var(--paper));
   max-width: 100%;
-  will-change: transform;
   cursor: grab;
 }
 .message-bubble:active { cursor: grabbing; }

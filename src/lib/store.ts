@@ -3,11 +3,11 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { ConnectionState } from "livekit-client";
 import { listen } from "@tauri-apps/api/event";
 import {
-  type ActivityPoint, type AuthUser, type Bootstrap, type ChannelGroup, type DMItem,
+  type ActivityPoint, type Attachment, type AuthUser, type Bootstrap, type ChannelGroup, type DMItem,
   type FriendRequest, type Member, type Message, type ServerItem, type Status,
 } from "./data";
 import { api } from "./api";
-import { isTauri, openExternal, startGoogleOAuthListener, type OAuthCallback } from "./native";
+import { isTauri, notify, openExternal, startGoogleOAuthListener, type OAuthCallback } from "./native";
 import {
   connectRealtime, disconnectRealtime, emitTyping, joinChannel,   onMessage,
   onPresence, onReaction, onTyping, sendRealtimeMessage,
@@ -18,9 +18,17 @@ import { useLiveKit } from "./livekit";
 
 export type View = "app" | "settings" | "addFriend" | "maintenance" | "offline" | "landing";
 export type Accent = "violet" | "lime" | "coral" | "cyan" | "amber";
+export type NotificationPrefs = {
+  dm: boolean;
+  mention: boolean;
+  server: boolean;
+  sound: boolean;
+  quiet: string;
+};
 
 type Profile = {
   name: string;
+  displayName: string;
   tag: string;
   title: string;
   status: Status;
@@ -61,11 +69,15 @@ type State = {
   messages: Message[];
   typingUsers: Record<string, string[]>;
   replyTo: ReplyTarget | null;
+  pinnedMessageIds: string[];
+  mutedChannelIds: string[];
+  notificationPrefs: NotificationPrefs;
   profile: Profile;
   accent: Accent;
   density: "comfortable" | "compact";
   reduceMotion: boolean;
   focusMode: boolean;
+  uiScale: number;
   micOn: boolean;
   camOn: boolean;
   deafened: boolean;
@@ -92,13 +104,14 @@ type State = {
   selectChannel: (id: string) => void;
   selectDM: (id: string) => void;
   loadMessages: (id: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<boolean>;
-  sendVoiceMessage: (url: string, duration: number) => Promise<boolean>;
+  sendMessage: (text: string, attachments?: Attachment[]) => Promise<boolean>;
+  sendVoiceMessage: (blob: Blob, duration: number) => Promise<boolean>;
   reactToMessage: (messageId: string, emoji: string) => Promise<void>;
   setReplyTo: (target: ReplyTarget | null) => void;
+  togglePin: (messageId: string) => void;
   deleteMessage: (id: string) => void;
   notifyTyping: () => void;
-  updateProfile: (patch: Partial<Profile>) => Promise<void>;
+  updateProfile: (patch: Partial<Profile>) => Promise<boolean>;
   createServer: (name: string) => Promise<void>;
   createInvite: () => Promise<string | null>;
   joinInvite: (code: string) => Promise<void>;
@@ -109,6 +122,9 @@ type State = {
   setDensity: (density: "comfortable" | "compact") => void;
   setReduceMotion: (value: boolean) => void;
   toggleFocusMode: () => void;
+  setUiScale: (value: number) => void;
+  setNotificationPrefs: (patch: Partial<NotificationPrefs>) => void;
+  toggleChannelMute: (channelId: string) => void;
   toggleMic: () => void;
   toggleCam: () => void;
   toggleDeafen: () => void;
@@ -122,6 +138,7 @@ type State = {
 
 const defaultProfile: Profile = {
   name: "",
+  displayName: "",
   tag: "",
   title: "",
   status: "offline",
@@ -135,10 +152,52 @@ const defaultProfile: Profile = {
 
 let realtimeBound = false;
 const typingTimers = new Map<string, number>();
+let messagesGeneration = 0;
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Ses dosyası okunamadı"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function quietActive(quiet: string) {
+  const match = /^(\d{2}):(\d{2}) - (\d{2}):(\d{2})$/.exec(quiet);
+  if (!match) return false;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  return start > end ? current >= start || current < end : current >= start && current < end;
+}
+
+function sendRealtimeAttachments(channelId: string, body: string, attachments: Attachment[], duration?: number) {
+  return new Promise<{ ok: boolean; message?: Message; error?: string }>((resolve) => {
+    const socket = connectRealtime();
+    if (!socket.connected) return resolve({ ok: false, error: "offline" });
+    let settled = false;
+    const finish = (result: { ok: boolean; message?: Message; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = window.setTimeout(() => finish({ ok: false, error: "timeout" }), 6000);
+    socket.emit("message:send", {
+      channelId,
+      body,
+      ...(duration !== undefined ? { duration: String(Math.round(duration)) } : {}),
+      attachments,
+    }, (result: { ok: boolean; message?: Message; error?: string }) => finish(result));
+  });
+}
 
 function profileFromUser(user: AuthUser): Profile {
   return {
     name: user.username,
+    displayName: user.displayName || user.username,
     tag: user.tag,
     title: user.title,
     status: user.status,
@@ -186,9 +245,21 @@ export const useApp = create<State>()(persist((set, get) => {
     if (conversation) void get().loadMessages(conversation);
   }
 
-  function addMessage(channelId: string, message: Message) {
-    if (channelId !== get().activeChannel && channelId !== get().activeDM) return;
-    set((s) => s.messages.some((m) => m.id === message.id) ? s : { messages: [...s.messages, message] });
+  function addMessage(channelId: string, message: Message, incoming = false) {
+    const state = get();
+    if (channelId !== state.activeChannel && channelId !== state.activeDM) return;
+    const duplicate = state.messages.some((m) => m.id === message.id);
+    set((s) => duplicate ? s : { messages: [...s.messages, message] });
+    if (!incoming || duplicate || message.own) return;
+    const current = state.sidebarTab === "dms" ? state.activeDM : state.activeChannel;
+    if (current === channelId && typeof document !== "undefined" && document.visibilityState === "visible") return;
+    const prefs = state.notificationPrefs;
+    const isDM = state.sidebarTab === "dms" && channelId === state.activeDM;
+    const mentioned = Boolean(message.mention) || /@/.test(message.text);
+    const allowed = isDM ? prefs.dm : mentioned ? prefs.mention : prefs.server;
+    if (!allowed || state.mutedChannelIds.includes(channelId) || quietActive(prefs.quiet)) return;
+    if (prefs.sound) useAudio.getState().playSound("mention");
+    void notify(message.author, message.text).catch(() => undefined);
   }
 
   function bindRealtime() {
@@ -200,7 +271,7 @@ export const useApp = create<State>()(persist((set, get) => {
       void currentConversation().then((id) => { if (id) joinChannel(id); });
     });
     socket.on("disconnect", () => set({ realtimeConnected: false }));
-    onMessage(({ channelId, message }) => addMessage(channelId, message));
+    onMessage(({ channelId, message }) => addMessage(channelId, message, true));
     onReaction(({ messageId, reactions }) => {
       set((s) => ({ messages: s.messages.map((m) => m.id === messageId ? { ...m, reactions } : m) }));
     });
@@ -258,11 +329,15 @@ export const useApp = create<State>()(persist((set, get) => {
     messages: [],
     typingUsers: {},
     replyTo: null,
+    pinnedMessageIds: [],
+    mutedChannelIds: [],
+    notificationPrefs: { dm: true, mention: true, server: false, sound: true, quiet: "Kapalı" },
     profile: defaultProfile,
     accent: "violet",
     density: "comfortable",
     reduceMotion: false,
     focusMode: false,
+    uiScale: 1,
     micOn: true,
     camOn: false,
     deafened: false,
@@ -358,6 +433,7 @@ export const useApp = create<State>()(persist((set, get) => {
       realtimeBound = false;
       set({
         authenticated: false, user: null, profile: defaultProfile, messages: [],
+        pinnedMessageIds: [], mutedChannelIds: [],
         servers: [], channelGroups: [], dms: [], members: [], friendRequests: [],
         activityData: [], voiceConnected: false, error: null, oauthStatus: null, launcherOpen: true,
       });
@@ -407,23 +483,29 @@ export const useApp = create<State>()(persist((set, get) => {
 
     loadMessages: async (id) => {
       if (!id) return;
+      const generation = ++messagesGeneration;
       joinChannel(id);
       try {
-        set({ messages: await api.messages(id) });
+        const loaded = await api.messages(id);
+        if (generation !== messagesGeneration) return;
+        set({ messages: loaded });
       } catch (error) {
+        if (generation !== messagesGeneration) return;
         set({ error: error instanceof Error ? error.message : "Mesajlar yüklenemedi" });
       }
     },
 
-    sendMessage: async (text) => {
+    sendMessage: async (text, attachments) => {
       const trimmed = text.trim();
       const channelId = await currentConversation();
-      if (!trimmed || !channelId) return false;
+      if ((!trimmed && !attachments?.length) || !channelId) return false;
       joinChannel(channelId);
-      const result = await sendRealtimeMessage(channelId, trimmed);
+      const result = attachments?.length
+        ? await sendRealtimeAttachments(channelId, trimmed, attachments)
+        : await sendRealtimeMessage(channelId, trimmed);
       let message = result.ok ? result.message : undefined;
       if (!message) {
-        try { message = await api.sendMessage(channelId, trimmed); }
+        try { message = await api.sendMessage(channelId, trimmed, undefined, undefined, attachments); }
         catch { message = undefined; }
       }
       if (!message) {
@@ -436,18 +518,33 @@ export const useApp = create<State>()(persist((set, get) => {
       return true;
     },
 
-    sendVoiceMessage: async (audioUrl, duration) => {
+    sendVoiceMessage: async (blob, duration) => {
       const channelId = await currentConversation();
-      if (!channelId) return false;
+      if (!channelId || !blob.size) return false;
       joinChannel(channelId);
-      const result = await sendRealtimeMessage(channelId, "Sesli mesaj", audioUrl, duration);
+      let dataUrl: string;
+      try {
+        dataUrl = await blobToDataUrl(blob);
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : "Ses dosyası okunamadı" });
+        return false;
+      }
+      const attachment: Attachment = {
+        kind: "audio",
+        mime: blob.type || "audio/webm",
+        name: "voice-message",
+        url: dataUrl,
+        bytes: blob.size,
+      };
+      const body = "Sesli mesaj";
+      const result = await sendRealtimeAttachments(channelId, body, [attachment], duration);
       let message = result.ok ? result.message : undefined;
       if (!message) {
-        try { message = await api.sendMessage(channelId, "Sesli mesaj", audioUrl, duration); }
+        try { message = await api.sendMessage(channelId, body, undefined, duration, [attachment]); }
         catch { message = undefined; }
       }
       if (!message) {
-        set({ error: "Sesli mesaj gönderilemedi" });
+        set({ error: result.error === "offline" ? "Sunucuya bağlı değilsin" : "Sesli mesaj gönderilemedi" });
         return false;
       }
       addMessage(channelId, message);
@@ -466,8 +563,14 @@ export const useApp = create<State>()(persist((set, get) => {
     },
 
     setReplyTo: (replyTo) => set({ replyTo }),
+    togglePin: (messageId) => set((s) => ({
+      pinnedMessageIds: s.pinnedMessageIds.includes(messageId)
+        ? s.pinnedMessageIds.filter((id) => id !== messageId)
+        : [...s.pinnedMessageIds, messageId],
+    })),
     deleteMessage: (id) => set((s) => ({
       messages: s.messages.filter((message) => message.id !== id),
+      pinnedMessageIds: s.pinnedMessageIds.filter((pinnedId) => pinnedId !== id),
       replyTo: s.replyTo?.id === id ? null : s.replyTo,
     })),
 
@@ -476,6 +579,7 @@ export const useApp = create<State>()(persist((set, get) => {
     updateProfile: async (patch) => {
       const body: Record<string, unknown> = {};
       if (patch.name !== undefined) body.name = patch.name;
+      if (patch.displayName !== undefined) body.displayName = patch.displayName;
       if (patch.title !== undefined) body.title = patch.title;
       if (patch.status !== undefined) body.status = patch.status;
       if (patch.customStatus !== undefined) body.customStatus = patch.customStatus;
@@ -486,8 +590,10 @@ export const useApp = create<State>()(persist((set, get) => {
       if (patch.activity !== undefined) body.activity = patch.activity;
       try {
         applyUser(await api.updateProfile(body));
+        return true;
       } catch (error) {
         set({ error: error instanceof Error ? error.message : "Profil güncellenemedi" });
+        return false;
       }
     },
 
@@ -563,6 +669,13 @@ export const useApp = create<State>()(persist((set, get) => {
     setDensity: (density) => set({ density }),
     setReduceMotion: (reduceMotion) => set({ reduceMotion }),
     toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+    setUiScale: (uiScale) => set({ uiScale: Math.max(0.75, Math.min(1.5, uiScale)) }),
+    setNotificationPrefs: (patch) => set((s) => ({ notificationPrefs: { ...s.notificationPrefs, ...patch } })),
+    toggleChannelMute: (channelId) => set((s) => ({
+      mutedChannelIds: s.mutedChannelIds.includes(channelId)
+        ? s.mutedChannelIds.filter((id) => id !== channelId)
+        : [...s.mutedChannelIds, channelId],
+    })),
 
     toggleMic: () => {
       const next = !get().micOn;
@@ -641,9 +754,33 @@ export const useApp = create<State>()(persist((set, get) => {
 }, {
   name: "slopsound-ui",
   storage: createJSONStorage(() => localStorage),
-  partialize: (s) => ({ accent: s.accent, density: s.density, reduceMotion: s.reduceMotion, focusMode: s.focusMode }),
+  partialize: (s) => ({
+    accent: s.accent,
+    density: s.density,
+    reduceMotion: s.reduceMotion,
+    focusMode: s.focusMode,
+    uiScale: s.uiScale,
+    pinnedMessageIds: s.pinnedMessageIds,
+    mutedChannelIds: s.mutedChannelIds,
+    notificationPrefs: s.notificationPrefs,
+  }),
   merge: (persisted, current) => {
     const saved = (persisted ?? {}) as Partial<State>;
-    return { ...current, ...saved, profile: defaultProfile };
+    return {
+      ...current,
+      ...saved,
+      profile: defaultProfile,
+      pinnedMessageIds: Array.isArray(saved.pinnedMessageIds) ? saved.pinnedMessageIds : [],
+      mutedChannelIds: Array.isArray(saved.mutedChannelIds) ? saved.mutedChannelIds : [],
+      notificationPrefs: { ...current.notificationPrefs, ...(saved.notificationPrefs ?? {}) },
+    };
   },
 }));
+
+if (typeof document !== "undefined") {
+  const applyUiScale = (value: number) => document.documentElement.style.setProperty("--ui-scale", String(value));
+  applyUiScale(useApp.getState().uiScale);
+  useApp.subscribe((state, previous) => {
+    if (state.uiScale !== previous.uiScale) applyUiScale(state.uiScale);
+  });
+}

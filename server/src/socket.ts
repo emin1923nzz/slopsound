@@ -8,12 +8,16 @@ import { getSessionUser, SESSION_COOKIE } from "./auth.js";
 import { incrementUnread, rateLimit, redis } from "./redis.js";
 import { canAccessChannel } from "./livekit.js";
 import { maybeSunlopReply } from "./bot.js";
+import { userBadges } from "./badges.js";
+import { attachmentsSchema } from "./attachments.js";
+import { registerCallHandlers } from "./calls.js";
 
 const messageSchema = z.object({
   channelId: z.string().uuid(),
   body: z.string().min(1).max(4000),
   audioUrl: z.string().max(2048).optional(),
   duration: z.string().max(12).optional(),
+  attachments: attachmentsSchema.optional(),
 });
 
 function cookieValue(header: string | undefined, name: string) {
@@ -27,8 +31,22 @@ function formatTime(date: Date) {
 
 let io: Server | null = null;
 
-export function emitMessage(channelId: string, message: unknown) {
-  io?.to(`channel:${channelId}`).emit("message:new", { channelId, message });
+export function emitMessage(channelId: string, message: unknown, authorId?: string) {
+  if (!io) return;
+  const room = `channel:${channelId}`;
+  if (!authorId) {
+    io.to(room).emit("message:new", { channelId, message });
+    return;
+  }
+  for (const socketId of io.sockets.adapter.rooms.get(room) ?? []) {
+    const socket = io.sockets.sockets.get(socketId);
+    if (!socket) continue;
+    const viewerId = (socket.data.user as { id?: string } | undefined)?.id;
+    socket.emit("message:new", {
+      channelId,
+      message: { ...(message as Record<string, unknown>), own: viewerId === authorId },
+    });
+  }
 }
 
 export function emitReaction(channelId: string, messageId: string, reactions: unknown) {
@@ -53,11 +71,13 @@ export async function incrementUnreadForMessage(channelId: string, authorId: str
 }
 
 export function createSocketServer(httpServer: HttpServer, origin: string | string[]) {
-  io = new Server(httpServer, {
+  const server = new Server(httpServer, {
     cors: { origin, credentials: true },
+    maxHttpBufferSize: 16 * 1024 * 1024,
   });
+  io = server;
 
-  io.use(async (socket, next) => {
+  server.use(async (socket, next) => {
     const token = cookieValue(socket.handshake.headers.cookie, SESSION_COOKIE)
       ?? socket.handshake.auth.token;
     const user = await getSessionUser(typeof token === "string" ? token : undefined);
@@ -66,8 +86,10 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
     next();
   });
 
-  io.on("connection", (socket) => {
-    const user = socket.data.user as { id: string; username: string; avatarColor: string; bot: boolean };
+  server.on("connection", (socket) => {
+    const user = socket.data.user as { id: string; username: string; avatarColor: string; avatarUrl: string; bot: boolean };
+    void socket.join(`user:${user.id}`);
+    registerCallHandlers(server, socket, user);
     void redis.set(`presence:${user.id}`, "online", "EX", 90);
     socket.broadcast.emit("presence:update", { userId: user.id, status: "online" });
 
@@ -96,6 +118,7 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
         body: parsed.data.body,
         audioUrl: parsed.data.audioUrl ?? null,
         duration: parsed.data.duration ?? null,
+        attachments: parsed.data.attachments ?? [],
       }).returning();
       const [author] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
       const message = {
@@ -106,12 +129,15 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
         text: row.body,
         mention: row.body.includes("@"),
         ai: Boolean(author?.bot ?? user.bot),
+        badges: userBadges(row.createdAt, author?.username ?? user.username, author?.tag),
         reactions: row.reactions,
+        avatarUrl: author?.avatarUrl || user.avatarUrl || undefined,
         audioUrl: row.audioUrl ?? undefined,
         duration: row.duration ? Number(row.duration) : undefined,
+        attachments: row.attachments ?? [],
         own: true,
       };
-      emitMessage(parsed.data.channelId, message);
+      emitMessage(parsed.data.channelId, message, user.id);
       await incrementUnreadForMessage(parsed.data.channelId, user.id);
       await maybeSunlopReply(parsed.data.channelId, user.id, parsed.data.body, emitMessage);
       ack?.({ ok: true, message });
@@ -128,5 +154,5 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
     });
   });
 
-  return io;
+  return server;
 }

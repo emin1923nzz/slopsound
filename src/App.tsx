@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { TooltipProvider } from "./components/ui";
 import { useApp } from "@/lib/store";
+import { useCallStore } from "@/lib/callStore";
 import { useAudio } from "@/lib/audio";
 import { useVideo } from "@/lib/video";
 import { useLiveKit } from "@/lib/livekit";
@@ -30,6 +31,7 @@ import { DynamicIsland } from "./components/DynamicIsland";
 import { ScreenSharePip } from "./components/ScreenSharePip";
 import { ChannelPeek } from "./components/ChannelPeek";
 import { WhatsNew } from "./components/WhatsNew";
+import { CallOverlay } from "./components/CallOverlay";
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
@@ -90,10 +92,17 @@ export default function App() {
   const launcherOpen = useApp((s) => s.launcherOpen);
   const setLauncherOpen = useApp((s) => s.setLauncherOpen);
   const initAuth = useApp((s) => s.initAuth);
+  const realtimeConnected = useApp((s) => s.realtimeConnected);
+  const bindCallEvents = useCallStore((s) => s.bindCallEvents);
 
   useAutoUpdate();
 
   useEffect(() => { void initAuth(); }, [initAuth]);
+
+  useEffect(() => {
+    if (!realtimeConnected) return;
+    bindCallEvents();
+  }, [bindCallEvents, realtimeConnected]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -184,9 +193,14 @@ export default function App() {
         void useLiveKit.getState().setScreenShare(!useLiveKit.getState().screenSharing, {
           source: video.screenSource,
           systemAudio: video.shareSystemAudio,
+          quality: video.screenQuality,
+          contentHint: video.screenContentHint,
+        }).then((ok) => {
+          if (!ok) toast.error("Ekran paylaşımı başlatılamadı");
         });
       }),
       listen("shortcut://ptt", () => {
+
         const audio = useAudio.getState();
         audio.setPushToTalk(!audio.pushToTalk);
       }),
@@ -231,6 +245,7 @@ export default function App() {
             </>
           )}
           <WhatsNew />
+          <CallOverlay />
           <Toaster
             position="bottom-center"
             offset={view === "app" ? 84 : 24}

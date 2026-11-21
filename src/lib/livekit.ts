@@ -9,11 +9,21 @@ import {
   Track,
   VideoPresets,
   VideoQuality,
+  type LocalTrackPublication,
   type RemoteAudioTrack,
   type RemoteVideoTrack,
 } from "livekit-client";
 import { useAudio } from "./audio";
-import { useVideo, videoEncodingFor, type QualityId, type ScreenSource } from "./video";
+import {
+  useVideo,
+  videoEncodingFor,
+  screenQualityPreset,
+  displaySurfaceFor,
+  type QualityId,
+  type ScreenSource,
+  type ScreenContentHint,
+  type ScreenQualityId,
+} from "./video";
 
 export type RemoteView = {
   id: string;
@@ -25,6 +35,7 @@ export type RemoteView = {
   isScreen: boolean;
   videoTrack: RemoteVideoTrack | null;
   audioTrack: RemoteAudioTrack | null;
+  screenAudioTrack: RemoteAudioTrack | null;
 };
 
 export type ConnectionStats = {
@@ -53,6 +64,7 @@ type Session = {
   room: Room | null;
   localAudio: LocalAudioTrack | null;
   localVideo: LocalVideoTrack | null;
+  screenPublication: LocalTrackPublication | null;
   audioHost: HTMLDivElement | null;
   statsTimer: number | null;
   levelTimer: number | null;
@@ -63,6 +75,7 @@ const session: Session = {
   room: null,
   localAudio: null,
   localVideo: null,
+  screenPublication: null,
   audioHost: null,
   statsTimer: null,
   levelTimer: null,
@@ -82,6 +95,8 @@ type LiveKitState = {
   screens: RemoteView[];
   activeSpeakerIds: string[];
   screenSharing: boolean;
+  screenPaused: boolean;
+  localScreenStream: MediaStream | null;
   stats: ConnectionStats;
   history: ConnectionEvent[];
   recordingNotice: RecordingNotice | null;
@@ -93,7 +108,15 @@ type LiveKitState = {
   disconnect: () => Promise<void>;
   setMicEnabled: (enabled: boolean) => Promise<void>;
   setCamEnabled: (enabled: boolean) => Promise<void>;
-  setScreenShare: (enabled: boolean, options?: { source?: ScreenSource; systemAudio?: boolean }) => Promise<boolean>;
+  setScreenShare: (enabled: boolean, options?: {
+    source?: ScreenSource;
+    systemAudio?: boolean;
+    quality?: ScreenQualityId;
+    contentHint?: ScreenContentHint;
+  }) => Promise<boolean>;
+  restartScreenShare: () => Promise<boolean>;
+  setScreenQuality: (id?: ScreenQualityId) => Promise<void>;
+  setScreenPaused: (paused: boolean) => Promise<void>;
   setPublishQuality: (quality: QualityId) => void;
   publishRecordingNotice: (state: "started" | "stopped") => Promise<void>;
   getRemoteAudioElements: () => HTMLAudioElement[];
@@ -132,24 +155,35 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       const cam = p.getTrackPublication(Track.Source.Camera);
       const mic = p.getTrackPublication(Track.Source.Microphone);
       const screen = p.getTrackPublication(Track.Source.ScreenShare);
+      const screenAudio = p.getTrackPublication(Track.Source.ScreenShareAudio);
       const isScreen = Boolean(screen?.videoTrack);
       const videoTrack = ((isScreen ? screen?.videoTrack : cam?.videoTrack) ?? null) as RemoteVideoTrack | null;
       const audioTrack = (mic?.audioTrack ?? null) as RemoteAudioTrack | null;
-      if (audioTrack && session.audioHost && audioTrack.attachedElements.length === 0) {
-        session.audioHost.appendChild(audioTrack.attach());
+      const screenAudioTrack = (screenAudio?.audioTrack ?? null) as RemoteAudioTrack | null;
+      const host = session.audioHost;
+      if (host) {
+        [audioTrack, screenAudioTrack].forEach((track) => {
+          if (track && track.attachedElements.length === 0) host.appendChild(track.attach());
+        });
       }
       return {
         id: p.identity,
         name: p.name || p.identity,
         color: colorFor(p.identity),
         cameraOn: Boolean(videoTrack) && !videoTrack!.isMuted,
-        audioOn: Boolean(audioTrack) && !audioTrack!.isMuted,
+        audioOn: Boolean((audioTrack && !audioTrack.isMuted) || (screenAudioTrack && !screenAudioTrack.isMuted)),
         audioLevel: p.audioLevel ?? 0,
         isScreen,
         videoTrack,
-        audioTrack,
+        audioTrack: audioTrack ?? screenAudioTrack,
+        screenAudioTrack,
       };
     });
+    const localScreenAudio = room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio);
+    const hasSystemAudio = Boolean(localScreenAudio?.audioTrack && !localScreenAudio.audioTrack.isMuted);
+    if (useVideo.getState().screenHasSystemAudio !== hasSystemAudio) {
+      useVideo.setState({ screenHasSystemAudio: hasSystemAudio });
+    }
     set({
       participants: views.filter((v) => !v.isScreen),
       screens: views.filter((v) => v.isScreen),
@@ -230,6 +264,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
     });
     session.localAudio = null;
     session.localVideo = null;
+    session.screenPublication = null;
     session.room = null;
     session.audioHost?.remove();
     session.audioHost = null;
@@ -256,6 +291,8 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
     screens: [],
     activeSpeakerIds: [],
     screenSharing: false,
+    screenPaused: false,
+    localScreenStream: null,
     stats: emptyStats,
     history: [],
     recordingNotice: null,
@@ -274,6 +311,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       setStatus(ConnectionState.Connecting);
       set({ error: null });
       const video = useVideo.getState();
+      const screenPreset = screenQualityPreset(video.screenQuality);
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -281,7 +319,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
         publishDefaults: {
           videoCodec: video.codec,
           videoEncoding: videoEncodingFor(video),
-          screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 15 },
+          screenShareEncoding: { maxBitrate: screenPreset.bitrate, maxFramerate: screenPreset.fps },
           backupCodec: video.codec === "vp8" ? false : { codec: "vp8" },
           videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360, VideoPresets.h720],
         },
@@ -295,6 +333,12 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       room.on(RoomEvent.TrackUnsubscribed, sync);
       room.on(RoomEvent.TrackMuted, sync);
       room.on(RoomEvent.TrackUnmuted, sync);
+      room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
+        if (publication.source !== Track.Source.ScreenShare) return;
+        session.screenPublication = null;
+        useVideo.setState({ screenHasSystemAudio: false });
+        set({ screenSharing: false, screenPaused: false, localScreenStream: null });
+      });
       room.on(RoomEvent.ActiveSpeakersChanged, sync);
       room.on(RoomEvent.ConnectionStateChanged, (state) => setStatus(state));
       room.on(RoomEvent.DataReceived, (payload, participant) => {
@@ -318,7 +362,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       room.on(RoomEvent.Disconnected, () => {
         cleanup();
         setStatus(ConnectionState.Disconnected, "Odadan ayrıldı");
-        set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, recordingNotice: null });
+        set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null });
       });
 
       try {
@@ -365,7 +409,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       session.room?.disconnect();
       cleanup();
       setStatus(ConnectionState.Disconnected, "Bağlantı kapatıldı");
-      set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, recordingNotice: null });
+      set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null });
     },
 
     setMicEnabled: async (enabled) => {
@@ -381,18 +425,91 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       const video = useVideo.getState();
       const source = options?.source ?? video.screenSource;
       const systemAudio = options?.systemAudio ?? video.shareSystemAudio;
+      const quality = options?.quality ?? video.screenQuality;
+      const contentHint = options?.contentHint ?? video.screenContentHint;
+      const preset = screenQualityPreset(quality);
       if (session.room) {
-        await session.room.localParticipant.setScreenShareEnabled(
-          enabled,
-          { video: { displaySurface: source }, audio: systemAudio },
-          { videoEncoding: { maxBitrate: 2_500_000, maxFramerate: 15 } },
+        if (!enabled) {
+          await session.room.localParticipant.setScreenShareEnabled(false);
+          session.screenPublication = null;
+          useVideo.setState({ screenHasSystemAudio: false });
+          set({ screenSharing: false, screenPaused: false, localScreenStream: null });
+          return true;
+        }
+        const publication = await session.room.localParticipant.setScreenShareEnabled(
+          true,
+          {
+            video: { displaySurface: displaySurfaceFor(source) },
+            resolution: { width: preset.width, height: preset.height, frameRate: preset.fps },
+            audio: systemAudio,
+            surfaceSwitching: "include",
+            selfBrowserSurface: "exclude",
+            preferCurrentTab: source === "tab" || source === "browser",
+            systemAudio: "include",
+            suppressLocalAudioPlayback: true,
+            contentHint,
+          },
+          {
+            source: Track.Source.ScreenShare,
+            videoCodec: preset.codec,
+            videoEncoding: { maxBitrate: preset.bitrate, maxFramerate: preset.fps },
+          },
         );
-        set({ screenSharing: enabled });
-        return enabled;
+        session.screenPublication = publication ?? null;
+        const track = publication?.videoTrack?.mediaStreamTrack ?? null;
+        if (track) track.contentHint = contentHint;
+        const audioPublication = session.room.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio);
+        const hasSystemAudio = Boolean(audioPublication?.audioTrack && !audioPublication.audioTrack.isMuted);
+        useVideo.setState({ screenHasSystemAudio: hasSystemAudio });
+        set({
+          screenSharing: Boolean(publication),
+          screenPaused: false,
+          localScreenStream: track ? new MediaStream([track]) : null,
+        });
+        sync();
+        return Boolean(publication);
       }
-      const ok = enabled ? await video.startScreenShare() : (video.stopScreenShare(), true);
-      set({ screenSharing: ok && enabled });
+      if (!enabled) {
+        video.stopScreenShare();
+        set({ screenSharing: false, screenPaused: false, localScreenStream: null });
+        return true;
+      }
+      const ok = await video.startScreenShare();
+      const stream = video.getScreenStream();
+      set({
+        screenSharing: ok,
+        screenPaused: false,
+        localScreenStream: ok ? stream : null,
+      });
       return ok;
+    },
+    restartScreenShare: async () => {
+      const active = session.room ? Boolean(session.screenPublication) : useVideo.getState().screenSharing;
+      if (active) await get().setScreenShare(false);
+      return get().setScreenShare(true);
+    },
+    setScreenQuality: async (id) => {
+      const preset = screenQualityPreset(id ?? useVideo.getState().screenQuality);
+      useVideo.getState().setScreenQuality(preset.id);
+      const sender = session.screenPublication?.videoTrack?.sender;
+      if (!sender) return;
+      try {
+        const params = sender.getParameters();
+        const encodings = params.encodings.length > 0 ? params.encodings : [{}];
+        params.encodings = encodings.map((encoding) => ({ ...encoding, maxBitrate: preset.bitrate, maxFramerate: preset.fps }));
+        await sender.setParameters(params);
+      } catch { return; }
+    },
+    setScreenPaused: async (paused) => {
+      const publication = session.screenPublication;
+      if (publication) {
+        if (paused) await publication.pauseUpstream();
+        else await publication.resumeUpstream();
+      } else {
+        const track = useVideo.getState().getScreenStream()?.getVideoTracks()[0];
+        if (track) track.enabled = !paused;
+      }
+      set({ screenPaused: paused });
     },
     setPublishQuality: (quality) => {
       const map = { low: VideoQuality.LOW, medium: VideoQuality.MEDIUM, high: VideoQuality.HIGH } as const;

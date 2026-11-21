@@ -65,7 +65,6 @@ export function SlopCompanion() {
       setView("app");
       await sendMessage(`@Sunlop ${value}`);
       setQuestion("");
-      setOpen(false);
       toast.success("Sunlop'a sordum, cevabı DM'de");
     } catch {
       toast.error("Soru gönderilemedi");
@@ -93,7 +92,7 @@ export function SlopCompanion() {
               <span className="grid h-7 w-7 place-items-center rounded-[10px] bg-brand/15 text-brand"><Sparkles size={14} /></span>
               <div className="min-w-0 flex-1">
                 <p className="font-display text-[12px] font-extrabold">Sloppi'ye sor</p>
-                <p className="text-[9.5px] text-muted">Sunlop'a iletirim, cevabı DM'de gelir.</p>
+                <p className="text-[9.5px] text-muted">Sunlop'a iletirim, dört sorunun tamamını sorabilirsin.</p>
               </div>
               <button onClick={() => setOpen(false)} className="icon-btn h-7 w-7" aria-label="Kapat"><X size={13} /></button>
             </div>

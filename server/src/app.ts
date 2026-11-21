@@ -53,7 +53,7 @@ function cookieOptions(expires: Date) {
 }
 
 export function buildApp() {
-  const app = Fastify({ logger: true, trustProxy: true });
+  const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 16 * 1024 * 1024 });
 
   void app.register(cors, {
     origin: (origin, callback) => {

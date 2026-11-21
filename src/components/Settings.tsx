@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import {
@@ -7,7 +7,7 @@ import {
   Circle, RefreshCw, AppWindow, Radio, Download, Image as ImageIcon, Gamepad2, Music2, Activity, Focus, Link2, Youtube, Boxes, MousePointer2, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useApp, type Accent } from "@/lib/store";
+import { useApp, type Accent, type NotificationPrefs } from "@/lib/store";
 import { useAudio } from "@/lib/audio";
 import { useVideo, resolutions, fpsOptions, qualityOptions, codecOptions } from "@/lib/video";
 import { useLiveKit } from "@/lib/livekit";
@@ -97,6 +97,55 @@ function Chips({ options, value, onChange }: { options: string[]; value: string;
 }
 
 type ProfilePatch = Partial<ReturnType<typeof useApp.getState>["profile"]>;
+type QueueKey = "displayName" | "username" | "other";
+const queueKeys: QueueKey[] = ["displayName", "username", "other"];
+const MAX_PROFILE_IMAGE_BYTES = 8 * 1024 * 1024;
+const PROFILE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+function isValidDisplayName(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && Array.from(trimmed).length <= 50 && !/[\u0000-\u001F\u007F]/.test(trimmed);
+}
+
+function isValidUsername(value: string) {
+  return /^[a-zA-Z0-9_]{3,32}$/.test(value.trim());
+}
+
+function resizeProfileImage(file: File, width: number, height: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      try {
+        if (!image.width || !image.height) throw new Error("Görsel okunamadı");
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Görsel işlenemedi");
+        const scale = Math.max(width / image.width, height / image.height);
+        const drawWidth = image.width * scale;
+        const drawHeight = image.height * scale;
+        context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+        const preferred = file.type === "image/webp" ? "image/webp" : "image/jpeg";
+        let dataUrl = canvas.toDataURL(preferred, 0.8);
+        if (preferred === "image/webp" && !dataUrl.startsWith("data:image/webp")) {
+          dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+        }
+        resolve(dataUrl);
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error("Görsel işlenemedi"));
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Görsel okunamadı"));
+    };
+    image.src = objectUrl;
+  });
+}
 
 function ProfilePanel() {
   const profile = useApp((s) => s.profile);
@@ -104,44 +153,118 @@ function ProfilePanel() {
   const updateProfile = useApp((s) => s.updateProfile);
   const activityData = useApp((s) => s.activityData);
   const [draft, setDraft] = useState(profile);
-  const saveTimer = useRef<number | undefined>(undefined);
+  const [fieldError, setFieldError] = useState("");
+  const [mediaError, setMediaError] = useState("");
+  const [uploading, setUploading] = useState<"avatar" | "banner" | null>(null);
+  const avatarInput = useRef<HTMLInputElement>(null);
+  const bannerInput = useRef<HTMLInputElement>(null);
+  const timers = useRef<Record<QueueKey, number | undefined>>({ displayName: undefined, username: undefined, other: undefined });
+  const pending = useRef<Record<QueueKey, ProfilePatch>>({ displayName: {}, username: {}, other: {} });
 
-  useEffect(() => () => window.clearTimeout(saveTimer.current), []);
+  useEffect(() => {
+    setDraft({
+      ...profile,
+      ...pending.current.displayName,
+      ...pending.current.username,
+      ...pending.current.other,
+    });
+  }, [profile]);
 
-  function save(patch: ProfilePatch) {
+  const flush = useCallback(async (key: QueueKey) => {
+    const patch = pending.current[key];
+    if (!Object.keys(patch).length) return;
+    pending.current[key] = {};
+    const ok = await updateProfile(patch);
+    toast[ok ? "success" : "error"](ok ? "Profil güncellendi" : useApp.getState().error ?? "Profil güncellenemedi");
+  }, [updateProfile]);
+
+  useEffect(() => () => {
+    queueKeys.forEach((key) => {
+      window.clearTimeout(timers.current[key]);
+      void flush(key);
+    });
+  }, [flush]);
+
+  function queue(key: QueueKey, patch: ProfilePatch) {
     setDraft((current) => ({ ...current, ...patch }));
-    void updateProfile(patch);
+    pending.current[key] = { ...pending.current[key], ...patch };
+    window.clearTimeout(timers.current[key]);
+    timers.current[key] = window.setTimeout(() => { void flush(key); }, 450);
   }
 
-  function queue(patch: ProfilePatch) {
+  async function saveNow(patch: ProfilePatch) {
+    window.clearTimeout(timers.current.other);
+    pending.current.other = { ...pending.current.other, ...patch };
     setDraft((current) => ({ ...current, ...patch }));
-    window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => { void updateProfile(patch); }, 400);
+    await flush("other");
   }
 
-  function queueName(value: string) {
-    setDraft((current) => ({ ...current, name: value }));
-    if (!/^[a-zA-Z0-9_]{3,32}$/.test(value)) return;
-    window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => { void updateProfile({ name: value }); }, 400);
+  function queueDisplayName(value: string) {
+    const valid = isValidDisplayName(value);
+    setFieldError(valid ? "" : "Görünen ad 1-50 karakter olmalı.");
+    if (valid) queue("displayName", { displayName: value.trim() });
   }
+
+  function queueUsername(value: string) {
+    const clean = value.trim();
+    const valid = isValidUsername(clean);
+    setFieldError(valid ? "" : "Kullanıcı adı 3-32 karakter olmalı; yalnızca a-z, 0-9 ve _ kullanılabilir.");
+    if (valid) queue("username", { name: clean });
+  }
+
+  async function uploadImage(file: File | undefined, target: "avatar" | "banner") {
+    if (!file) return;
+    if (!PROFILE_IMAGE_TYPES.includes(file.type)) {
+      const message = "PNG, JPG, WebP veya GIF seçmelisin";
+      setMediaError(message);
+      toast.error(message);
+      return;
+    }
+    if (file.size > MAX_PROFILE_IMAGE_BYTES) {
+      const message = "Görsel boyutu en fazla 8 MB olabilir";
+      setMediaError(message);
+      toast.error(message);
+      return;
+    }
+    setUploading(target);
+    setMediaError("");
+    try {
+      const dataUrl = target === "avatar"
+        ? await resizeProfileImage(file, 256, 256)
+        : await resizeProfileImage(file, 1280, 360);
+      await saveNow(target === "avatar" ? { avatarUrl: dataUrl } : { bannerUrl: dataUrl });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Görsel yüklenemedi";
+      setMediaError(message);
+      toast.error(message);
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  const displayName = draft.displayName || draft.name;
+  const bannerStyle = draft.bannerUrl
+    ? draft.bannerUrl.startsWith("linear-gradient")
+      ? { background: draft.bannerUrl }
+      : { backgroundImage: `url("${draft.bannerUrl}")` }
+    : { background: `linear-gradient(120deg, ${draft.color}55, transparent 60%), radial-gradient(circle at 80% 20%, #C9F25B33, transparent 50%)` };
 
   return (
     <Panel title="Profilim" description="Diğer kullanıcılar seni böyle görür. Değişiklikler anında önizlemede görünür.">
       <Card>
         <SectionTitle>Önizleme</SectionTitle>
         <div className="mt-4 overflow-hidden rounded-card border border-white/[.06] bg-black/20">
-          <div className="h-24 w-full bg-cover bg-center" style={draft.bannerUrl ? { backgroundImage: `url(${draft.bannerUrl})` } : { background: `linear-gradient(120deg, ${draft.color}55, transparent 60%), radial-gradient(circle at 80% 20%, #C9F25B33, transparent 50%)` }} />
+          <div className="h-24 w-full bg-cover bg-center" style={bannerStyle} />
           <div className="-mt-8 flex flex-wrap items-end gap-4 p-5 pt-0">
-          <SlopAvatar name={draft.name} size={64} status={draft.status} showDot className="ring-4 ring-[#17141f]" />
+          <SlopAvatar name={displayName} src={draft.avatarUrl} size={64} status={draft.status} showDot className="ring-4 ring-[#17141f]" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="font-display text-[17px] font-extrabold">{draft.name}</p>
-              {draft.title && <span className="rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[9px] font-bold text-brand">{draft.title}</span>}
+              <p className="max-w-full break-words font-display text-[17px] font-extrabold">{displayName}</p>
+              {draft.title && <span className="max-w-full break-words rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[9px] font-bold text-brand">{draft.title}</span>}
             </div>
-            <p className="text-[11.5px] text-muted">{draft.name}#{profile.tag} • <span style={{ color: draft.color }}>{draft.customStatus}</span></p>
-            {draft.activity && <p className="mt-1 flex items-center gap-1.5 text-[10.5px] text-lime"><Radio size={11} /> {draft.activity}</p>}
-            <p className="mt-2 max-w-md text-[12px] text-paper/75">{draft.bio}</p>
+            <p className="break-words text-[11.5px] text-muted">{displayName} @{draft.name}#{profile.tag} • <span style={{ color: draft.color }}>{draft.customStatus}</span></p>
+            {draft.activity && <p className="mt-1 flex items-center gap-1.5 break-words text-[10.5px] text-lime"><Radio size={11} /> {draft.activity}</p>}
+            <p className="mt-2 max-w-md break-words text-[12px] text-paper/75">{draft.bio}</p>
             {badges.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5"><BadgeChips badges={badges} /></div>}
           </div>
           <Button variant="outline" size="sm" onClick={() => document.getElementById("media-url")?.scrollIntoView({ behavior: "smooth" })}><Camera size={13} /> Görsel / Banner Seç</Button>
@@ -150,34 +273,40 @@ function ProfilePanel() {
       </Card>
 
       <Card>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <SectionTitle>Kullanıcı adı</SectionTitle>
-            <Input value={draft.name} onChange={(e) => queueName(e.target.value)} className="mt-2" />
-            <p className="mt-1.5 text-[10.5px] text-muted">3-32 karakter, boşluk yok. Geçerli olunca kaydedilir.</p>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <div className="min-w-0">
+            <SectionTitle>Görünen ad</SectionTitle>
+            <Input aria-label="Görünen ad" value={draft.displayName} maxLength={50} onChange={(e) => queueDisplayName(e.target.value)} onBlur={() => { if (fieldError) toast.error(fieldError); }} className="mt-2 min-w-0" placeholder="Adın Soyadın" />
+            <p className="mt-1.5 break-words text-[10.5px] text-muted">Unicode ve boşluk destekli, 1-50 karakter. Önizlemede ve dock’ta görünür.</p>
           </div>
-          <div>
+          <div className="min-w-0">
+            <SectionTitle>Kullanıcı adı / @handle</SectionTitle>
+            <Input aria-label="Kullanıcı adı / @handle" value={draft.name} maxLength={32} onChange={(e) => queueUsername(e.target.value)} onBlur={() => { if (fieldError) toast.error(fieldError); }} className="mt-2 min-w-0" placeholder="kullanici_adi" />
+            <p className="mt-1.5 break-words text-[10.5px] text-muted">3-32 karakter; yalnızca a-z, 0-9 ve _. Geçerli olunca kaydedilir.</p>
+          </div>
+          <div className="min-w-0 xl:col-span-2">
             <SectionTitle>Etiket</SectionTitle>
-            <Input value={`#${profile.tag}`} disabled className="mt-2 opacity-60" />
+            <Input value={`#${profile.tag}`} disabled className="mt-2 min-w-0 opacity-60" />
             <p className="mt-1.5 text-[10.5px] text-muted">Etiketin sabit, değiştirilemez.</p>
           </div>
         </div>
+        {fieldError && <p className="mt-2 break-words text-[10.5px] text-danger">{fieldError}</p>}
         <div className="mt-5">
           <SectionTitle>Hitap / Unvan</SectionTitle>
-          <Input value={draft.title} maxLength={60} onChange={(e) => queue({ title: e.target.value })} className="mt-2" placeholder="Örn. Oyun Kurucu, Owner, Tasarımcı" />
+          <Input value={draft.title} maxLength={60} onChange={(e) => queue("other", { title: e.target.value })} className="mt-2 min-w-0" placeholder="Örn. Oyun Kurucu, Owner, Tasarımcı" />
           <p className="mt-1.5 text-[10.5px] text-muted">Adının yanında rozet gibi görünür.</p>
         </div>
         <div className="mt-5">
-          <div className="flex items-center justify-between"><SectionTitle>Hakkımda</SectionTitle><span className="text-[10px] text-muted tabular">{draft.bio.length} / 190</span></div>
-          <Textarea value={draft.bio} maxLength={190} onChange={(e) => queue({ bio: e.target.value })} className="mt-2" rows={3} />
+          <div className="flex items-center justify-between gap-2"><SectionTitle>Hakkımda</SectionTitle><span className="tabular text-[10px] text-muted">{draft.bio.length} / 190</span></div>
+          <Textarea value={draft.bio} maxLength={190} onChange={(e) => queue("other", { bio: e.target.value })} className="mt-2" rows={3} />
         </div>
         <div className="mt-5">
           <SectionTitle>Durumun</SectionTitle>
-          <div className="mt-2"><Chips options={["Çevrimiçi", "Boşta", "Rahatsız Etme", "Görünmez"]} value={{ online: "Çevrimiçi", idle: "Boşta", dnd: "Rahatsız Etme", offline: "Görünmez" }[draft.status]} onChange={(v) => save({ status: ({ "Çevrimiçi": "online", "Boşta": "idle", "Rahatsız Etme": "dnd", "Görünmez": "offline" } as const)[v] })} /></div>
+          <div className="mt-2"><Chips options={["Çevrimiçi", "Boşta", "Rahatsız Etme", "Görünmez"]} value={{ online: "Çevrimiçi", idle: "Boşta", dnd: "Rahatsız Etme", offline: "Görünmez" }[draft.status]} onChange={(v) => { void saveNow({ status: ({ "Çevrimiçi": "online", "Boşta": "idle", "Rahatsız Etme": "dnd", "Görünmez": "offline" } as const)[v] }); }} /></div>
         </div>
         <div className="mt-5">
           <SectionTitle>Özel durum mesajı</SectionTitle>
-          <Input value={draft.customStatus} onChange={(e) => queue({ customStatus: e.target.value })} className="mt-2" />
+          <Input value={draft.customStatus} onChange={(e) => queue("other", { customStatus: e.target.value })} className="mt-2 min-w-0" />
           <p className="mt-1.5 text-[10.5px] text-muted">Profilinde adının altında görünür.</p>
         </div>
         <div className="mt-5">
@@ -186,7 +315,7 @@ function ProfilePanel() {
             {profileColors.map((color) => (
               <button
                 key={color}
-                onClick={() => save({ color })}
+                onClick={() => { void saveNow({ color }); }}
                 className={cn("grid h-10 w-10 place-items-center rounded-full border-2 transition hover:scale-110", draft.color === color ? "border-paper" : "border-transparent")}
                 style={{ background: color }}
               >
@@ -199,26 +328,50 @@ function ProfilePanel() {
 
       <Card id="media-url">
         <SectionTitle>Profil Görseli ve Banner</SectionTitle>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted">Doğrudan görsel veya GIF bağlantısı yapıştır. Dosya yüklemek için kendi CDN’ini ya da görsel barındırıcısını kullanabilirsin.</p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <Input aria-label="Avatar görsel URL" value={draft.avatarUrl} onChange={(e) => queue({ avatarUrl: e.target.value })} placeholder="Avatar görsel URL" />
-          <Input aria-label="Banner görsel URL" value={draft.bannerUrl} onChange={(e) => queue({ bannerUrl: e.target.value })} placeholder="Banner görsel URL" />
+        <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">PNG, JPG, WebP veya GIF yükle. Avatar 256×256, banner 1280×360 boyutuna ölçeklenir; dosya sınırı 8 MB.</p>
+        <div className="mt-4 flex min-w-0 flex-wrap items-center gap-3">
+          <SlopAvatar name={displayName} src={draft.avatarUrl} size={48} />
+          <div className="h-12 min-w-[120px] flex-1 rounded-xl border border-white/10 bg-cover bg-center" style={bannerStyle} />
         </div>
+        <input
+          ref={avatarInput}
+          type="file"
+          accept={PROFILE_IMAGE_TYPES.join(",")}
+          className="hidden"
+          onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void uploadImage(file, "avatar"); }}
+        />
+        <input
+          ref={bannerInput}
+          type="file"
+          accept={PROFILE_IMAGE_TYPES.join(",")}
+          className="hidden"
+          onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void uploadImage(file, "banner"); }}
+        />
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button variant="ghost" size="sm" onClick={() => save({ avatarUrl: "", bannerUrl: "" })}><ImageIcon size={12} /> Varsayalana Dön</Button>
-          <Button variant="outline" size="sm" onClick={() => save({ bannerUrl: `linear-gradient(120deg, ${draft.color}66, #17141f)` })}>Renkli banner</Button>
+          <Button variant="outline" size="sm" disabled={uploading !== null} onClick={() => avatarInput.current?.click()}><Camera size={12} /> {uploading === "avatar" ? "Yükleniyor…" : "Avatar yükle"}</Button>
+          <Button variant="outline" size="sm" disabled={uploading !== null} onClick={() => bannerInput.current?.click()}><ImageIcon size={12} /> {uploading === "banner" ? "Yükleniyor…" : "Banner yükle"}</Button>
+          <Button variant="ghost" size="sm" onClick={() => { void saveNow({ avatarUrl: "", bannerUrl: "" }); }}><ImageIcon size={12} /> Varsayalana Dön</Button>
+          <Button variant="outline" size="sm" onClick={() => { void saveNow({ bannerUrl: "" }); }}>Bannerı kaldır</Button>
         </div>
+        {mediaError && <p className="mt-2 break-words text-[11px] text-danger">{mediaError}</p>}
+        <details className="mt-4 rounded-xl border border-white/[.06] p-3">
+          <summary className="cursor-pointer text-[11px] font-bold text-muted">Gelişmiş: görsel URL’leri</summary>
+          <div className="mt-3 grid min-w-0 gap-2 xl:grid-cols-2">
+            <Input aria-label="Avatar görsel URL" value={draft.avatarUrl} onChange={(e) => queue("other", { avatarUrl: e.target.value })} placeholder="Avatar görsel URL" className="min-w-0" />
+            <Input aria-label="Banner görsel URL" value={draft.bannerUrl} onChange={(e) => queue("other", { bannerUrl: e.target.value })} placeholder="Banner görsel URL" className="min-w-0" />
+          </div>
+        </details>
       </Card>
 
       <Card>
         <SectionTitle>Rich Presence</SectionTitle>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted">Oyun veya müzik durumunu profilinde ve dock’ta göster. Bu alan yalnızca senin seçtiğin bilgiyi paylaşır.</p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <Input aria-label="Aktivite metni" value={draft.activity} onChange={(e) => queue({ activity: e.target.value })} placeholder="Örn. Valorant oynuyor" />
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => save({ activity: "Valorant oynuyor" })}><Gamepad2 size={12} /> Oyun</Button>
-            <Button variant="outline" size="sm" onClick={() => save({ activity: "Spotify’da müzik dinliyor" })}><Music2 size={12} /> Müzik</Button>
-            <Button variant="ghost" size="sm" onClick={() => save({ activity: "" })}>Temizle</Button>
+        <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">Oyun veya müzik durumunu profilinde ve dock’ta göster. Bu alan yalnızca senin seçtiğin bilgiyi paylaşır.</p>
+        <div className="mt-4 grid min-w-0 gap-2 xl:grid-cols-2">
+          <Input aria-label="Aktivite metni" value={draft.activity} onChange={(e) => queue("other", { activity: e.target.value })} placeholder="Örn. Valorant oynuyor" className="min-w-0" />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => { void saveNow({ activity: "Valorant oynuyor" }); }}><Gamepad2 size={12} /> Oyun</Button>
+            <Button variant="outline" size="sm" onClick={() => { void saveNow({ activity: "Spotify’da müzik dinliyor" }); }}><Music2 size={12} /> Müzik</Button>
+            <Button variant="ghost" size="sm" onClick={() => { void saveNow({ activity: "" }); }}>Temizle</Button>
           </div>
         </div>
       </Card>
@@ -321,20 +474,26 @@ function PrivacyPanel() {
 }
 
 function NotificationPanel() {
-  const [v, setV] = useState({ dm: true, mention: true, server: false, sound: true });
-  const [quiet, setQuiet] = useState("Kapalı");
+  const prefs = useApp((s) => s.notificationPrefs);
+  const setPrefs = useApp((s) => s.setNotificationPrefs);
+  const patch = (value: Partial<NotificationPrefs>) => setPrefs(value);
   return (
     <Panel title="Bildirimler" description="Ne zaman ses çıksın, ne zaman sessiz kalsın.">
       <Card>
-        <ToggleRow icon={Bell} title="DM bildirimleri" description="Biri sana yazınca bildirim gelsin." checked={v.dm} onCheckedChange={(x) => setV({ ...v, dm: x })} />
-        <ToggleRow icon={AtSign} title="Etiketlenme (@) bildirimleri" description="Biri seni etiketleyince." checked={v.mention} onCheckedChange={(x) => setV({ ...v, mention: x })} />
-        <ToggleRow icon={User} title="Sunucu bildirimleri" description="Tüm sunuculardan bildirim al." checked={v.server} onCheckedChange={(x) => setV({ ...v, server: x })} />
-        <ToggleRow icon={Bell} title="Ses" description="Bildirim sesi çalsın." checked={v.sound} onCheckedChange={(x) => setV({ ...v, sound: x })} />
+        <ToggleRow icon={Bell} title="DM bildirimleri" description="Biri sana yazınca bildirim gelsin." checked={prefs.dm} onCheckedChange={(dm) => patch({ dm })} />
+        <ToggleRow icon={AtSign} title="Etiketlenme (@) bildirimleri" description="Biri seni etiketleyince." checked={prefs.mention} onCheckedChange={(mention) => patch({ mention })} />
+        <ToggleRow icon={User} title="Sunucu bildirimleri" description="Tüm sunuculardan bildirim al." checked={prefs.server} onCheckedChange={(server) => patch({ server })} />
+        <ToggleRow icon={Bell} title="Ses" description="Bildirim sesi çalsın." checked={prefs.sound} onCheckedChange={(sound) => patch({ sound })} />
       </Card>
       <Card>
         <SectionTitle>Rahatsız etme saatleri</SectionTitle>
-        <div className="mt-3"><Chips options={["Kapalı", "23:00 - 08:00", "00:00 - 09:00", "Özel saat seç"]} value={quiet} onChange={setQuiet} /></div>
-        <p className="mt-2 text-[10.5px] text-muted">Bu saatlerde bildirim gelmez.</p>
+        <div className="mt-3"><Chips options={["Kapalı", "23:00 - 08:00", "00:00 - 09:00"]} value={prefs.quiet} onChange={(quiet) => patch({ quiet })} /></div>
+        <p className="mt-2 text-[10.5px] text-muted">Bu saatlerde masaüstü bildirimi ve bildirim sesi gelmez.</p>
+      </Card>
+      <Card>
+        <Row icon={Bell} title="Test bildirimi" description="Masaüstü bildirim sistemini doğrula.">
+          <Button variant="outline" size="sm" onClick={() => { void notify("SlopSound", "Bildirim ayarları çalışıyor.").then(() => toast.success("Test bildirimi gönderildi")); }}>Gönder</Button>
+        </Row>
       </Card>
     </Panel>
   );
@@ -349,8 +508,15 @@ function AppearancePanel() {
   const setReduceMotion = useApp((s) => s.setReduceMotion);
   const focusMode = useApp((s) => s.focusMode);
   const toggleFocusMode = useApp((s) => s.toggleFocusMode);
+  const uiScale = useApp((s) => s.uiScale);
+  const setUiScale = useApp((s) => s.setUiScale);
   const [theme, setTheme] = useState("Koyu + Mor");
-  const [fontSize, setFontSize] = useState("Normal");
+  const fontSizes = [
+    { label: "Küçük", value: 0.85 },
+    { label: "Normal", value: 1 },
+    { label: "Büyük", value: 1.12 },
+    { label: "Çok Büyük", value: 1.25 },
+  ];
   return (
     <Panel title="Görünüm" description="SlopSound sana nasıl görünsün.">
       <Card>
@@ -368,7 +534,7 @@ function AppearancePanel() {
       </Card>
       <Card>
         <SectionTitle>Yazı boyutu</SectionTitle>
-        <div className="mt-3"><Chips options={["Küçük", "Normal", "Büyük", "Çok Büyük"]} value={fontSize} onChange={setFontSize} /></div>
+        <div className="mt-3"><Chips options={fontSizes.map((size) => size.label)} value={fontSizes.find((size) => size.value === uiScale)?.label ?? "Normal"} onChange={(label) => { const next = fontSizes.find((size) => size.label === label); if (next) setUiScale(next.value); }} /></div>
         <div className="mt-5">
           <ToggleRow icon={Palette} title="Kompakt mod" description="Mesajlar daha sıkı görünür, daha çok mesaj sığar." checked={density === "compact"} onCheckedChange={(v) => setDensity(v ? "compact" : "comfortable")} />
           <ToggleRow icon={Palette} title="Hareketleri azalt" description="Animasyonları kapat, daha hızlı hissettir." checked={reduceMotion} onCheckedChange={setReduceMotion} />

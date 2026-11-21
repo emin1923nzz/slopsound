@@ -67,3 +67,22 @@ export function onPresence(handler: (payload: { userId: string; status: string }
   socket?.on("presence:update", handler);
   return () => socket?.off("presence:update", handler);
 }
+
+export function getRealtimeSocket() {
+  return socket;
+}
+
+export function emitCall(event: string, payload: unknown, ack?: (result: any) => void) {
+  if (!socket?.connected) {
+    ack?.({ ok: false, error: "offline" });
+    return;
+  }
+  if (ack) socket.emit(event, payload, ack);
+  else socket.emit(event, payload);
+}
+
+export function onCall(event: string, handler: (payload: any) => void) {
+  const current = socket;
+  current?.on(event, handler);
+  return () => current?.off(event, handler);
+}

@@ -8,11 +8,36 @@ import { canAccessChannel, createVoiceToken } from "./livekit.js";
 import { channelRecipientIds, emitMessage, emitReaction, incrementUnreadForMessage } from "./socket.js";
 import { maybeSunlopReply } from "./bot.js";
 import { userBadges } from "./badges.js";
+import { attachmentsSchema } from "./attachments.js";
 import {
   channelMembers, channels, friends, messages, serverMembers, servers, users,
 } from "./schema.js";
 
 const uuid = z.string().uuid();
+
+const httpMediaUrl = z.string().max(2048).refine((value) => {
+  if (/\.svg(?:[?#]|$)/i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+});
+
+const dataMediaUrl = (maxChars: number) => z.string().min(1).max(maxChars)
+  .regex(/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/);
+
+const mediaUrl = (maxChars: number) => z.union([httpMediaUrl, dataMediaUrl(maxChars)]).optional().nullable();
+
+function isUniqueViolation(error: unknown) {
+  const detail = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  const message = error instanceof Error ? error.message : "";
+  return detail?.code === "23505"
+    || detail?.cause?.code === "23505"
+    || message.includes("23505")
+    || message.includes("duplicate key value");
+}
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
@@ -84,8 +109,10 @@ async function mapMessages(channelId: string, viewerId: string) {
     ai: Boolean(author.bot),
     badges: userBadges(author.createdAt, author.username, author.tag),
     reactions: message.reactions,
+    avatarUrl: author.avatarUrl || undefined,
     audioUrl: message.audioUrl ?? undefined,
     duration: message.duration ? Number(message.duration) : undefined,
+    attachments: message.attachments ?? [],
     own: author.id === viewerId,
   }));
 }
@@ -240,28 +267,43 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     const parsed = z.object({
       name: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/).optional(),
+      displayName: z.string().trim().min(1).max(50).optional(),
       title: z.string().max(60).optional(),
       customStatus: z.string().max(120).optional(),
       bio: z.string().max(190).optional(),
       color: z.string().max(32).optional(),
-      avatarUrl: z.string().max(2048).optional(),
-      bannerUrl: z.string().max(2048).optional(),
+      avatarUrl: mediaUrl(2_000_000),
+      bannerUrl: mediaUrl(3_000_000),
       activity: z.string().max(120).optional(),
       status: z.enum(["online", "idle", "dnd", "offline"]).optional(),
     }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
     const patch: Record<string, unknown> = {};
-    if (parsed.data.name !== undefined) patch.username = parsed.data.name;
+    if (parsed.data.name !== undefined) {
+      const [taken] = await db.select({ id: users.id }).from(users)
+        .where(and(sql`lower(${users.username}) = ${parsed.data.name.toLowerCase()}`, ne(users.id, user.id)))
+        .limit(1);
+      if (taken) return reply.code(409).send({ error: "username_taken" });
+      patch.username = parsed.data.name;
+    }
+    if (parsed.data.displayName !== undefined) patch.displayName = parsed.data.displayName;
     if (parsed.data.title !== undefined) patch.title = parsed.data.title;
     if (parsed.data.customStatus !== undefined) patch.customStatus = parsed.data.customStatus;
     if (parsed.data.bio !== undefined) patch.bio = parsed.data.bio;
     if (parsed.data.color !== undefined) patch.avatarColor = parsed.data.color;
-    if (parsed.data.avatarUrl !== undefined) patch.avatarUrl = parsed.data.avatarUrl;
-    if (parsed.data.bannerUrl !== undefined) patch.bannerUrl = parsed.data.bannerUrl;
+    if (parsed.data.avatarUrl !== undefined) patch.avatarUrl = parsed.data.avatarUrl ?? "";
+    if (parsed.data.bannerUrl !== undefined) patch.bannerUrl = parsed.data.bannerUrl ?? "";
     if (parsed.data.activity !== undefined) patch.activity = parsed.data.activity;
     if (parsed.data.status !== undefined) patch.status = parsed.data.status;
-    const [updated] = await db.update(users).set(patch).where(eq(users.id, user.id)).returning();
-    return publicUser(updated);
+    try {
+      const [updated] = await db.update(users).set(patch).where(eq(users.id, user.id)).returning();
+      return publicUser(updated);
+    } catch (error) {
+      if (parsed.data.name !== undefined && isUniqueViolation(error)) {
+        return reply.code(409).send({ error: "username_taken" });
+      }
+      throw error;
+    }
   });
 
   app.post("/channels", async (request, reply) => {
@@ -330,6 +372,7 @@ export function registerRoutes(app: FastifyInstance) {
       body: z.string().min(1).max(4000),
       audioUrl: z.string().max(2048).optional(),
       duration: z.string().max(12).optional(),
+      attachments: attachmentsSchema.optional(),
     }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
     await db.insert(messages).values({
@@ -338,10 +381,11 @@ export function registerRoutes(app: FastifyInstance) {
       body: parsed.data.body,
       audioUrl: parsed.data.audioUrl ?? null,
       duration: parsed.data.duration ?? null,
+      attachments: parsed.data.attachments ?? [],
     });
     const list = await mapMessages(id, user.id);
     const message = list[list.length - 1];
-    if (message) emitMessage(id, message);
+    if (message) emitMessage(id, message, user.id);
     await incrementUnreadForMessage(id, user.id);
     await maybeSunlopReply(id, user.id, parsed.data.body, emitMessage);
     return reply.code(201).send(message);

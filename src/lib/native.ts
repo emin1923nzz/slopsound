@@ -17,16 +17,35 @@ export type OAuthCallback = {
 };
 
 export function isTauri() {
-  return typeof window !== "undefined" &&
-    ("__TAURI_INTERNALS__" in window || "__TAURI__" in window);
+  if (typeof window === "undefined") return false;
+  const target = window as Window & { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  return Boolean(target.__TAURI_INTERNALS__ ?? target.__TAURI__) ||
+    (typeof navigator !== "undefined" && navigator.userAgent.includes("Tauri"));
 }
 
 export async function openExternal(url: string) {
   if (!isTauri()) {
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (typeof window === "undefined" || typeof window.open !== "function") {
+      throw new Error("Bu bağlantı bu ortamda açılamıyor");
+    }
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) throw new Error("Bağlantı açılamadı");
     return;
   }
   await invoke("open_external", { url });
+}
+
+export async function openExternalHttp(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Geçersiz bağlantı");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Yalnızca http/https bağlantıları açılabilir");
+  }
+  await openExternal(parsed.toString());
 }
 
 export async function startGoogleOAuthListener() {

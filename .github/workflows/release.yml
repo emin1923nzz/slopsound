@@ -19,10 +19,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          NOTES="v0.1.6: DM sesli ve görüntülü aramalar, fotoğraf/video/sesli mesaj ekleri, sohbet kaydırma ve gecikme düzeltmesi, Sunlop 4 cevap modu, görünen ad ve @handle, PC'den profil fotoğrafı, Edge çubuk düzeltmesi, AAA ekran paylaşımı (4K30) ve yenilenen ayarlar butonları."
           gh release create "$GITHUB_REF_NAME" \
             --title "SlopSound $GITHUB_REF_NAME" \
-            --notes "Google ile giriş ve production API bağlantısı düzeltildi. Tüm platformlar için imzalı Tauri artifact'ları." \
+            --notes "$NOTES" \
             --target "$GITHUB_SHA" || true
+          gh release edit "$GITHUB_REF_NAME" --notes "$NOTES"
       - name: Resolve release id
         id: release
         env:
@@ -135,6 +137,28 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.releaseId }}
           releaseDraft: false
           prerelease: false
-          uploadUpdaterJson: true
+          uploadUpdaterJson: false
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+  finalize:
+    needs: [create-release, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate latest.json from release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: node scripts/generate-latest-json.mjs
+
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" latest.json --clobber

@@ -65,33 +65,52 @@ pub fn start_oauth_listener(app: tauri::AppHandle) -> Result<(), String> {
         Err(error) => return Err(error.to_string()),
     };
     thread::spawn(move || {
-        let Ok((mut stream, _)) = listener.accept() else { return };
-        let mut buffer = [0u8; 4096];
-        let read = stream.read(&mut buffer).unwrap_or(0);
-        let request = String::from_utf8_lossy(&buffer[..read]);
-        let target = request.lines().next().and_then(|line| line.split_whitespace().nth(1)).unwrap_or("");
-        let query = target.split('?').nth(1).unwrap_or("");
-        let params: HashMap<String, String> = query
-            .split('&')
-            .filter(|part| !part.is_empty())
-            .filter_map(|part| {
-                let mut pair = part.splitn(2, '=');
-                Some((percent_decode(pair.next().unwrap_or("")), percent_decode(pair.next().unwrap_or(""))))
-            })
-            .collect();
-        let payload = OAuthCallback {
-            code: params.get("code").cloned(),
-            state: params.get("state").cloned(),
-            error: params.get("error").cloned(),
-        };
-        let body = "<!doctype html><html lang=\"tr\"><meta charset=\"utf-8\"><title>SlopSound</title><body style=\"margin:0;display:grid;place-items:center;min-height:100vh;background:#100E16;color:#F4F1EA;font-family:Segoe UI,sans-serif;text-align:center\"><div><div style=\"width:56px;height:56px;margin:0 auto 18px;border-radius:18px;background:#8B6CFF;color:#100E16;display:grid;place-items:center;font-size:26px;font-weight:900\">S</div><h1 style=\"font-size:20px;margin:0\">Google girişi tamamlandı</h1><p style=\"color:#9b95ad;font-size:13px;margin-top:8px\">SlopSound'a dönebilirsin.</p></div></body></html>";
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = app.emit("oauth://google", payload);
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+            let mut buffer = [0u8; 4096];
+            let read = match stream.read(&mut buffer) {
+                Ok(read) if read > 0 => read,
+                _ => continue,
+            };
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let mut parts = request.lines().next().unwrap_or("").split_whitespace();
+            if parts.next() != Some("GET") {
+                continue;
+            }
+            let target = parts.next().unwrap_or("");
+            let (path, query) = target.split_once('?').unwrap_or((target, ""));
+            if path != "/callback" {
+                continue;
+            }
+            let params: HashMap<String, String> = query
+                .split('&')
+                .filter(|part| !part.is_empty())
+                .filter_map(|part| {
+                    let mut pair = part.splitn(2, '=');
+                    Some((percent_decode(pair.next().unwrap_or("")), percent_decode(pair.next().unwrap_or(""))))
+                })
+                .collect();
+            let code = params.get("code").filter(|value| !value.is_empty()).cloned();
+            let state = params.get("state").filter(|value| !value.is_empty()).cloned();
+            if code.is_none() || state.is_none() {
+                continue;
+            }
+            let payload = OAuthCallback {
+                code,
+                state,
+                error: params.get("error").cloned(),
+            };
+            let body = "<!doctype html><html lang=\"tr\"><meta charset=\"utf-8\"><title>SlopSound</title><body style=\"margin:0;display:grid;place-items:center;min-height:100vh;background:#100E16;color:#F4F1EA;font-family:Segoe UI,sans-serif;text-align:center\"><div><div style=\"width:56px;height:56px;margin:0 auto 18px;border-radius:18px;background:#8B6CFF;color:#100E16;display:grid;place-items:center;font-size:26px;font-weight:900\">S</div><h1 style=\"font-size:20px;margin:0\">Google girişi tamamlandı</h1><p style=\"color:#9b95ad;font-size:13px;margin-top:8px\">SlopSound'a dönebilirsin.</p></div></body></html>";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = app.emit("oauth://google", payload);
+            break;
+        }
     });
     Ok(())
 }

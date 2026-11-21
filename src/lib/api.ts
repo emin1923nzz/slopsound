@@ -1,4 +1,4 @@
-import type { AuthUser, Bootstrap, Message } from "./data";
+import type { Attachment, AuthUser, Bootstrap, Message } from "./data";
 import { API_BASE } from "./config";
 
 export class ApiError extends Error {
@@ -46,13 +46,14 @@ export const api = {
     method: "PATCH", body: JSON.stringify(patch),
   }),
   messages: (channelId: string) => request<Message[]>(`/channels/${channelId}/messages`),
-  sendMessage: (channelId: string, body: string, audioUrl?: string, duration?: number) =>
+  sendMessage: (channelId: string, body: string, audioUrl?: string, duration?: number, attachments?: Attachment[]) =>
     request<Message>(`/channels/${channelId}/messages`, {
       method: "POST",
       body: JSON.stringify({
         body,
         ...(audioUrl ? { audioUrl } : {}),
-        ...(duration ? { duration: String(Math.round(duration)) } : {}),
+        ...(duration !== undefined ? { duration: String(Math.round(duration)) } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       }),
     }),
   react: (messageId: string, emoji: string) => request<{ reactions: { emoji: string; count: number }[] }>(`/messages/${messageId}/reactions`, {

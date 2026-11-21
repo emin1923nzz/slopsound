@@ -4,7 +4,9 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type VideoCodec = "vp8" | "vp9" | "h264";
 export type ResolutionId = "360p" | "480p" | "720p" | "1080p" | "2160p";
 export type QualityId = "low" | "medium" | "high";
-export type ScreenSource = "monitor" | "window";
+export type ScreenSource = "monitor" | "window" | "tab" | "browser";
+export type ScreenContentHint = "detail" | "text" | "motion";
+export type ScreenQualityId = "1080p30" | "1440p30" | "4K15" | "4K30";
 
 export const resolutions: { id: ResolutionId; label: string; width: number; height: number; bitrate: number }[] = [
   { id: "360p", label: "360p • hafif", width: 640, height: 360, bitrate: 600_000 },
@@ -26,6 +28,27 @@ export const codecOptions: { id: VideoCodec; label: string; note: string }[] = [
   { id: "h264", label: "H.264", note: "Donanım hızlandırmalı" },
 ];
 
+export const screenQualityOptions: { id: ScreenQualityId; label: string; width: number; height: number; bitrate: number; fps: number; codec: VideoCodec }[] = [
+  { id: "1080p30", label: "1080p • 30 FPS", width: 1920, height: 1080, bitrate: 4_500_000, fps: 30, codec: "vp8" },
+  { id: "1440p30", label: "1440p • 30 FPS", width: 2560, height: 1440, bitrate: 8_000_000, fps: 30, codec: "vp9" },
+  { id: "4K15", label: "4K • 15 FPS", width: 3840, height: 2160, bitrate: 10_000_000, fps: 15, codec: "vp9" },
+  { id: "4K30", label: "4K • 30 FPS • AAA", width: 3840, height: 2160, bitrate: 18_000_000, fps: 30, codec: "h264" },
+];
+
+export const screenContentHints: { id: ScreenContentHint; label: string }[] = [
+  { id: "detail", label: "Detay" },
+  { id: "text", label: "Metin" },
+  { id: "motion", label: "Hareket" },
+];
+
+export function screenQualityPreset(id: ScreenQualityId) {
+  return screenQualityOptions.find((q) => q.id === id) ?? screenQualityOptions[0];
+}
+
+export function displaySurfaceFor(source: ScreenSource): "monitor" | "window" | "browser" {
+  return source === "tab" || source === "browser" ? "browser" : source;
+}
+
 type Local = {
   rawStream: MediaStream | null;
   stream: MediaStream | null;
@@ -44,6 +67,8 @@ type VideoState = {
   codec: VideoCodec;
   styleFilter: boolean;
   screenSource: ScreenSource;
+  screenContentHint: ScreenContentHint;
+  screenQuality: ScreenQualityId;
   shareSystemAudio: boolean;
   webCodecsSupported: boolean;
   cameraOn: boolean;
@@ -59,6 +84,8 @@ type VideoState = {
   setCodec: (id: VideoCodec) => void;
   setStyleFilter: (value: boolean) => void;
   setScreenSource: (source: ScreenSource) => void;
+  setScreenContentHint: (hint: ScreenContentHint) => void;
+  setScreenQuality: (id: ScreenQualityId) => void;
   setShareSystemAudio: (value: boolean) => void;
   startCamera: () => Promise<boolean>;
   stopCamera: () => void;
@@ -142,6 +169,15 @@ export function videoEncodingFor(state: Pick<VideoState, "resolution" | "fps" | 
   };
 }
 
+type DisplayMediaExtended = DisplayMediaStreamOptions & {
+  surfaceSwitching?: "include" | "exclude";
+  selfBrowserSurface?: "include" | "exclude";
+  preferCurrentTab?: boolean;
+  systemAudio?: "include" | "exclude";
+  suppressLocalAudioPlayback?: boolean;
+  contentHint?: ScreenContentHint;
+};
+
 export const useVideo = create<VideoState>()(persist((set, get) => {
   function constraints() {
     const s = get();
@@ -175,6 +211,8 @@ export const useVideo = create<VideoState>()(persist((set, get) => {
     codec: "vp8",
     styleFilter: false,
     screenSource: "monitor",
+    screenContentHint: "detail",
+    screenQuality: "1080p30",
     shareSystemAudio: false,
     webCodecsSupported: typeof window !== "undefined" && supportsWebCodecs(),
     cameraOn: false,
@@ -212,6 +250,21 @@ export const useVideo = create<VideoState>()(persist((set, get) => {
       if (get().cameraOn) rebuildStream();
     },
     setScreenSource: (screenSource) => set({ screenSource }),
+    setScreenContentHint: (screenContentHint) => {
+      set({ screenContentHint });
+      const track = local.screenStream?.getVideoTracks()[0];
+      if (track) track.contentHint = screenContentHint;
+    },
+    setScreenQuality: (screenQuality) => {
+      set({ screenQuality });
+      const preset = screenQualityPreset(screenQuality);
+      const track = local.screenStream?.getVideoTracks()[0];
+      if (track) void track.applyConstraints({
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.fps, max: preset.fps },
+      }).catch(() => undefined);
+    },
     setShareSystemAudio: (shareSystemAudio) => set({ shareSystemAudio }),
 
     startCamera: async () => {
@@ -247,20 +300,32 @@ export const useVideo = create<VideoState>()(persist((set, get) => {
 
     startScreenShare: async () => {
       const media = navigator.mediaDevices as MediaDevices & {
-        getDisplayMedia?: (o: DisplayMediaStreamOptions) => Promise<MediaStream>;
+        getDisplayMedia?: (o: DisplayMediaExtended) => Promise<MediaStream>;
       };
       if (!media?.getDisplayMedia) { set({ error: "Ekran paylaşımı desteklenmiyor" }); return false; }
-      const { screenSource, shareSystemAudio, fps } = get();
+      const { screenSource, screenContentHint, screenQuality, shareSystemAudio } = get();
+      const preset = screenQualityPreset(screenQuality);
+      const tab = screenSource === "tab" || screenSource === "browser";
       try {
         const stream = await media.getDisplayMedia({
           video: {
-            displaySurface: screenSource,
-            frameRate: { ideal: fps, max: fps },
+            displaySurface: displaySurfaceFor(screenSource),
+            width: { ideal: preset.width },
+            height: { ideal: preset.height },
+            frameRate: { ideal: preset.fps, max: preset.fps },
           } as DisplayMediaStreamOptions["video"],
-          audio: shareSystemAudio,
+          audio: shareSystemAudio ? { systemAudio: "include", suppressLocalAudioPlayback: true } as unknown as MediaTrackConstraints : false,
+          surfaceSwitching: "include",
+          selfBrowserSurface: "exclude",
+          preferCurrentTab: tab,
+          systemAudio: "include",
+          suppressLocalAudioPlayback: true,
+          contentHint: screenContentHint,
         });
         local.screenStream = stream;
-        stream.getVideoTracks()[0]?.addEventListener("ended", () => get().stopScreenShare());
+        const track = stream.getVideoTracks()[0];
+        if (track) track.contentHint = screenContentHint;
+        track?.addEventListener("ended", () => get().stopScreenShare());
         stream.getAudioTracks()[0]?.addEventListener("ended", () => set({ screenHasSystemAudio: false }));
         const hasAudio = stream.getAudioTracks().length > 0;
         set({ screenSharing: true, screenHasSystemAudio: hasAudio, error: null });
@@ -295,6 +360,8 @@ export const useVideo = create<VideoState>()(persist((set, get) => {
     codec: s.codec,
     styleFilter: s.styleFilter,
     screenSource: s.screenSource,
+    screenContentHint: s.screenContentHint,
+    screenQuality: s.screenQuality,
     shareSystemAudio: s.shareSystemAudio,
   }),
 }));

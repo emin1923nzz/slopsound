@@ -72,6 +72,7 @@ export async function destroyAllSessions(userId: string, keepTokenHash?: string)
 export type SessionUser = {
   id: string;
   username: string;
+  displayName: string;
   email: string;
   avatarColor: string;
   tag: string;
@@ -88,7 +89,7 @@ export type SessionUser = {
 };
 
 export function publicUser(user: {
-  id: string; username: string; email: string; avatarColor: string;
+  id: string; username: string; displayName: string; email: string; avatarColor: string;
   tag: string; title: string; customStatus: string; bio: string; avatarUrl: string;
   bannerUrl: string; activity: string; status: string; bot: number;
   createdAt: Date; googleSub?: string | null;
@@ -96,6 +97,7 @@ export function publicUser(user: {
   return {
     id: user.id,
     username: user.username,
+    displayName: user.displayName,
     email: user.email,
     avatarColor: user.avatarColor,
     tag: user.tag,

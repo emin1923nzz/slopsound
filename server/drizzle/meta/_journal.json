@@ -29,6 +29,20 @@
       "when": 1795267264726,
       "tag": "0003_profile_title",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795276215753,
+      "tag": "0004_curved_king_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795277281519,
+      "tag": "0005_display_name",
+      "breakpoints": true
     }
   ]
 }

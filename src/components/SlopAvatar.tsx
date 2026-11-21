@@ -1,4 +1,4 @@
-import type { KeyboardEvent, Ref } from "react";
+import { useEffect, useState, type KeyboardEvent, type Ref } from "react";
 import { Blobatar } from "@blobatar/react";
 import { useApp } from "@/lib/store";
 import { useAudio } from "@/lib/audio";
@@ -7,6 +7,7 @@ import type { Status } from "@/lib/data";
 
 type Props = {
   name: string;
+  src?: string;
   size?: number;
   status?: Status;
   showDot?: boolean;
@@ -29,6 +30,7 @@ const dotColor: Record<Status, string> = {
 
 export function SlopAvatar({
   name,
+  src,
   size = 36,
   status = "online",
   showDot = false,
@@ -42,8 +44,10 @@ export function SlopAvatar({
   blobatarRef,
 }: Props) {
   const reduceMotion = useApp((s) => s.reduceMotion);
+  const [imageFailed, setImageFailed] = useState(false);
   const mode = reduceMotion ? undefined : animate ?? "hover";
   const dotSize = size >= 56 ? "h-3.5 w-3.5" : size >= 32 ? "h-2.5 w-2.5" : "h-2 w-2";
+  useEffect(() => setImageFailed(false), [src]);
 
   function activate() {
     if (!onClick) return;
@@ -69,16 +73,29 @@ export function SlopAvatar({
       tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? title ?? name : undefined}
     >
-      <Blobatar
-        ref={blobatarRef}
-        name={name}
-        size={size}
-        background={background}
-        hue={hue}
-        animate={mode}
-        title={title ?? name}
-        className={cn("block rounded-full", className)}
-      />
+      {src && !imageFailed ? (
+        <img
+          src={src}
+          alt={title ?? name}
+          title={title ?? name}
+          width={size}
+          height={size}
+          onError={() => setImageFailed(true)}
+          className={cn("block rounded-full object-cover", className)}
+          style={{ width: size, height: size }}
+        />
+      ) : (
+        <Blobatar
+          ref={blobatarRef}
+          name={name}
+          size={size}
+          background={background}
+          hue={hue}
+          animate={mode}
+          title={title ?? name}
+          className={cn("block rounded-full", className)}
+        />
+      )}
       {showDot && (
         <span
           className={cn(

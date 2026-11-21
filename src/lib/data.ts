@@ -9,6 +9,17 @@ export type Member = {
   role: "Yönetim" | "AI" | "Çevrimiçi" | "Çevrimdışı";
   bot?: boolean;
   badges?: string[];
+  avatarUrl?: string;
+};
+
+export type Attachment = {
+  kind: "image" | "video" | "audio";
+  mime: string;
+  name: string;
+  url: string;
+  bytes: number;
+  width?: number;
+  height?: number;
 };
 
 export type Message = {
@@ -24,6 +35,8 @@ export type Message = {
   reactions?: { emoji: string; count: number }[];
   audioUrl?: string;
   duration?: number;
+  attachments?: Attachment[];
+  avatarUrl?: string;
 };
 
 export type Channel = {
@@ -55,6 +68,7 @@ export type DMItem = {
   unread: number;
   ai?: boolean;
   group?: boolean;
+  avatarUrl?: string;
 };
 
 export type FriendRequest = {
@@ -70,6 +84,7 @@ export type ActivityPoint = { day: string; messages: number; voice: number };
 export type AuthUser = {
   id: string;
   username: string;
+  displayName: string;
   email: string;
   avatarColor: string;
   tag: string;

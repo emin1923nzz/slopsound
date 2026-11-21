@@ -1,15 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import {
   Mic, MicOff, Video, VideoOff, MonitorUp, Headphones, HeadphoneOff, PhoneOff,
   Users, Signal, Sparkles, ArrowLeft, Radio, Circle, RefreshCw, Activity, Monitor, AppWindow, HardDrive,
+  Globe, Type, Film, Pause, Play, RotateCcw, Square, Gauge,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectionState, type RemoteVideoTrack } from "livekit-client";
 import { useApp } from "@/lib/store";
 import { useAudio } from "@/lib/audio";
-import { useVideo, resolutions, qualityOptions } from "@/lib/video";
+import {
+  useVideo, resolutions, qualityOptions, screenQualityOptions, screenContentHints,
+  screenQualityPreset, type ScreenSource, type ScreenContentHint, type ScreenQualityId,
+} from "@/lib/video";
 import { useLiveKit } from "@/lib/livekit";
 import { useRecording } from "@/lib/recording";
 import { cn } from "@/lib/utils";
@@ -101,34 +105,75 @@ export function VoiceRoom() {
   const codec = useVideo((s) => s.codec);
   const webCodecs = useVideo((s) => s.webCodecsSupported);
   const attachScreen = useVideo((s) => s.attachScreen);
+  const screenSource = useVideo((s) => s.screenSource);
+  const setScreenSource = useVideo((s) => s.setScreenSource);
+  const screenContentHint = useVideo((s) => s.screenContentHint);
+  const setScreenContentHint = useVideo((s) => s.setScreenContentHint);
+  const screenQuality = useVideo((s) => s.screenQuality);
+  const shareSystemAudio = useVideo((s) => s.shareSystemAudio);
+  const setShareSystemAudio = useVideo((s) => s.setShareSystemAudio);
+  const screenHasSystemAudio = useVideo((s) => s.screenHasSystemAudio);
 
   const liveStatus = useLiveKit((s) => s.status);
   const liveParticipants = useLiveKit((s) => s.participants);
   const liveScreens = useLiveKit((s) => s.screens);
   const activeSpeakerIds = useLiveKit((s) => s.activeSpeakerIds);
   const liveScreenSharing = useLiveKit((s) => s.screenSharing);
+  const screenPaused = useLiveKit((s) => s.screenPaused);
+  const localScreenStream = useLiveKit((s) => s.localScreenStream);
   const setScreenShare = useLiveKit((s) => s.setScreenShare);
+  const restartScreenShare = useLiveKit((s) => s.restartScreenShare);
+  const setLiveScreenQuality = useLiveKit((s) => s.setScreenQuality);
+  const setScreenPaused = useLiveKit((s) => s.setScreenPaused);
   const stats = useLiveKit((s) => s.stats);
   const reconnect = useLiveKit((s) => s.reconnect);
-  const screenSource = useVideo((s) => s.screenSource);
-  const setScreenSource = useVideo((s) => s.setScreenSource);
-  const shareSystemAudio = useVideo((s) => s.shareSystemAudio);
-  const setShareSystemAudio = useVideo((s) => s.setShareSystemAudio);
-  const screenHasSystemAudio = useVideo((s) => s.screenHasSystemAudio);
   const recording = useRecording((s) => s.recording);
   const recordingMode = useRecording((s) => s.mode);
   const startRecording = useRecording((s) => s.start);
   const stopRecording = useRecording((s) => s.stop);
   const screenSharing = liveScreenSharing || screenSharingLocal;
 
+  const [activeScreenId, setActiveScreenId] = useState<string | null>(null);
+
   const chartData = levels.map((v, i) => ({ t: i, v: Math.round(v * 100) }));
   const preset = resolutions.find((r) => r.id === resolution) ?? resolutions[2];
   const qualityLabel = qualityOptions.find((q) => q.id === quality)?.label.split(" ")[0] ?? "Orta";
+  const screenPreset = screenQualityPreset(screenQuality);
+  const remoteScreen = liveScreens.find((s) => s.id === activeScreenId) ?? liveScreens[0] ?? null;
 
   const selfSpeaking = micOn && !deafened && level > 0.12;
   const connected = liveStatus === ConnectionState.Connected;
   const connecting = liveStatus === ConnectionState.Connecting || liveStatus === ConnectionState.Reconnecting;
   const participantCount = liveParticipants.length + 1;
+
+  async function toggleShare() {
+    const ok = await setScreenShare(!screenSharing);
+    if (!ok) toast.error("Ekran paylaşımı başlatılamadı");
+  }
+
+  async function restartShare() {
+    const ok = await restartScreenShare();
+    if (!ok) toast.error("Ekran paylaşımı başlatılamadı");
+  }
+
+  async function changeSource(next: ScreenSource) {
+    setScreenSource(next);
+    if (screenSharing) await restartShare();
+  }
+
+  async function changeContentHint(next: ScreenContentHint) {
+    setScreenContentHint(next);
+    if (screenSharing) await restartShare();
+  }
+
+  async function changeSystemAudio() {
+    setShareSystemAudio(!shareSystemAudio);
+    if (screenSharing) await restartShare();
+  }
+
+  function changeQuality(id: ScreenQualityId) {
+    void setLiveScreenQuality(id);
+  }
 
   return (
     <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-ink/40">
@@ -162,10 +207,17 @@ export function VoiceRoom() {
           <div className="flex items-center gap-2">
             <h2 className="font-display text-[15px] font-extrabold">{voiceChannel}</h2>
             <span className="rounded-full bg-lime/15 px-2 py-0.5 text-[9px] font-black tracking-wider text-lime">CANLI</span>
+            {screenSharing && (
+              <span className="flex items-center gap-1 rounded-full bg-brand/20 px-2 py-0.5 text-[9px] font-black tracking-wider text-brand">
+                <MonitorUp size={10} /> {screenPaused ? "PAYLAŞIM DURAKLATILDI" : "EKRANINI PAYLAŞIYORSUN"}
+              </span>
+            )}
             {recording && <span className="flex items-center gap-1 rounded-full bg-danger/15 px-2 py-0.5 text-[9px] font-black tracking-wider text-danger"><Circle size={7} fill="currentColor" /> {recordingMode === "meeting" ? "KAYIT" : "YEREL KAYIT"}</span>}
           </div>
           <p className="text-[11px] text-muted">
-            {connected ? "LiveKit • WebRTC" : "Yerel mod"} • {preset.label.split(" ")[0]} / {fps} FPS / {codec.toUpperCase()} / {qualityLabel}
+            {screenSharing
+              ? `Ekran • ${screenPreset.label} / ${screenContentHints.find((h) => h.id === screenContentHint)?.label} / ${screenHasSystemAudio ? "sesli" : "sessiz"}`
+              : `${connected ? "LiveKit • WebRTC" : "Yerel mod"} • ${preset.label.split(" ")[0]} / ${fps} FPS / ${codec.toUpperCase()} / ${qualityLabel}`}
           </p>
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-white/[.07] bg-white/[.04] px-3 py-1.5 sm:flex">
@@ -205,26 +257,41 @@ export function VoiceRoom() {
             isSelf
             localStream={videoStream}
           />
+          {liveScreens.length > 1 && (
+            <div className="col-span-2 flex flex-wrap items-center gap-2 rounded-2xl border border-white/[.06] bg-white/[.03] p-2">
+              <span className="text-[10px] font-bold text-muted">Paylaşımlar</span>
+              {liveScreens.map((screen) => (
+                <button
+                  key={screen.id}
+                  onClick={() => setActiveScreenId(screen.id)}
+                  data-active={remoteScreen?.id === screen.id}
+                  className="rounded-full bg-white/[.06] px-3 py-1 text-[10px] font-bold text-paper/80 transition data-[active=true]:bg-brand data-[active=true]:text-ink"
+                >
+                  {screen.name}
+                </button>
+              ))}
+            </div>
+          )}
           {screenSharing && (
-            liveScreens[0] ? (
+            remoteScreen ? (
               <VideoTile
                 id="remote-screen"
-                name={liveScreens[0].name}
-                color={liveScreens[0].color}
+                name={remoteScreen.name}
+                color={remoteScreen.color}
                 role="Ekran paylaşımı"
-                micOn={false}
+                micOn={remoteScreen.audioOn}
                 camOn
                 speaking={false}
-                track={liveScreens[0].videoTrack}
+                track={remoteScreen.videoTrack}
                 screen
               />
             ) : (
-              <LocalScreenTile attachScreen={attachScreen} />
+              <LocalScreenTile attachScreen={attachScreen} stream={localScreenStream} />
             )
           )}
         </div>
 
-        <aside className="hidden w-[230px] shrink-0 flex-col gap-3 lg:flex">
+        <aside className="hidden w-[230px] shrink-0 flex-col gap-3 overflow-y-auto lg:flex">
           <div className="glass rounded-panel p-4">
             <div className="flex items-center gap-2">
               <Sparkles size={14} className="text-brand" />
@@ -277,18 +344,56 @@ export function VoiceRoom() {
             <p className="mt-2 text-[9px] text-muted/70">Giriş {stats.kbpsIn} kb/s • Çıkış {stats.kbpsOut} kb/s • STUN/TURN hazır</p>
           </div>
           <div className="glass-soft rounded-panel p-4">
-            <div className="flex items-center gap-2 text-muted"><MonitorUp size={14} /><p className="text-[11px] font-bold">Paylaşım kaynağı</p></div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button aria-label="Tüm ekranı paylaş" onClick={() => setScreenSource("monitor")} data-active={screenSource === "monitor"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Monitor size={14} />Tüm ekran</button>
-              <button aria-label="Pencere paylaş" onClick={() => setScreenSource("window")} data-active={screenSource === "window"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><AppWindow size={14} />Pencere</button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-muted"><MonitorUp size={14} /><p className="text-[11px] font-bold">Paylaşım kaynağı</p></div>
+              {screenSharing && <button aria-label="Paylaşımı durdur" onClick={() => void toggleShare()} className="flex items-center gap-1 rounded-full bg-danger/15 px-2 py-1 text-[9px] font-bold text-danger"><Square size={9} /> Durdur</button>}
             </div>
-            <button aria-label="Sistem sesini paylaş" onClick={() => setShareSystemAudio(!shareSystemAudio)} data-active={shareSystemAudio} className="mt-2 flex w-full items-center justify-between rounded-xl bg-white/[.04] px-3 py-2 text-[10px] text-paper/80">
+            <div className="mt-3 grid grid-cols-3 gap-1.5">
+              <button aria-label="Tüm ekranı paylaş" onClick={() => void changeSource("monitor")} data-active={screenSource === "monitor"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Monitor size={14} />Ekran</button>
+              <button aria-label="Pencere paylaş" onClick={() => void changeSource("window")} data-active={screenSource === "window"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><AppWindow size={14} />Pencere</button>
+              <button aria-label="Sekme paylaş" onClick={() => void changeSource("tab")} data-active={screenSource === "tab" || screenSource === "browser"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Globe size={14} />Sekme</button>
+            </div>
+            <p className="mt-3 text-[9px] font-bold uppercase tracking-wider text-muted">İçerik ipucu</p>
+            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              {screenContentHints.map((hint, i) => (
+                <button key={hint.id} onClick={() => void changeContentHint(hint.id)} data-active={screenContentHint === hint.id} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-1 py-1.5 text-[9px] font-bold text-paper/80 transition data-[active=true]:bg-brand data-[active=true]:text-ink">
+                  {i === 0 ? <Type size={11} /> : i === 1 ? <Film size={11} /> : <Activity size={11} />}{hint.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-[9px] font-bold uppercase tracking-wider text-muted">Kalite profili</p>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              {screenQualityOptions.map((item) => (
+                <button key={item.id} onClick={() => changeQuality(item.id)} data-active={screenQuality === item.id} className="rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition data-[active=true]:bg-brand data-[active=true]:text-ink">
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button aria-label="Sistem sesini paylaş" onClick={() => void changeSystemAudio()} data-active={shareSystemAudio} className="mt-2 flex w-full items-center justify-between rounded-xl bg-white/[.04] px-3 py-2 text-[10px] text-paper/80">
               <span>Sistem sesi</span><span className={cn("font-bold", shareSystemAudio ? "text-lime" : "text-muted")}>{shareSystemAudio ? "Açık" : "Kapalı"}</span>
             </button>
-            {screenSharing && shareSystemAudio && !screenHasSystemAudio && <p className="mt-2 text-[9px] text-warn">WebView2 sistem sesini vermedi; native WASAPI yakalaması gerekebilir.</p>}
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
+              <button disabled={!screenSharing} onClick={() => void setScreenPaused(!screenPaused)} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition disabled:opacity-30">
+                {screenPaused ? <Play size={11} /> : <Pause size={11} />}{screenPaused ? "Devam" : "Duraklat"}
+              </button>
+              <button disabled={!screenSharing} onClick={() => void restartShare()} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition disabled:opacity-30">
+                <RotateCcw size={11} />Yeni kaynak
+              </button>
+            </div>
+            {screenSharing && (
+              <div className="mt-3 space-y-1.5 border-t border-white/[.06] pt-3 text-[10px] text-paper/75">
+                <div className="flex justify-between"><span>Durum</span><span className={cn("font-bold", screenPaused ? "text-warn" : "text-lime")}>{screenPaused ? "Duraklatıldı" : "Canlı yayın"}</span></div>
+                <div className="flex justify-between"><span>Profil</span><span className="font-bold">{screenPreset.width}×{screenPreset.height} / {screenPreset.fps} FPS</span></div>
+                <div className="flex justify-between"><span>Kodlayıcı</span><span className="font-bold">{screenPreset.codec.toUpperCase()}</span></div>
+                <div className="flex justify-between"><span>Bitrate</span><span className="tabular font-bold">{Math.round(screenPreset.bitrate / 1_000_000)} Mb/s</span></div>
+                <div className="flex justify-between"><span>Çıkış</span><span className="tabular font-bold">{stats.kbpsOut} kb/s</span></div>
+                <div className="flex justify-between"><span>Sistem sesi</span><span className="font-bold">{screenHasSystemAudio ? "Alınıyor" : "Yok"}</span></div>
+              </div>
+            )}
+            {screenSharing && shareSystemAudio && !screenHasSystemAudio && <p className="mt-2 text-[9px] text-warn">Tarayıcı sistem sesini vermedi; sekme sesiyle yeniden deneyebilirsin.</p>}
           </div>
           <div className="glass-soft rounded-panel p-4">
-            <p className="text-[10px] font-bold text-muted">GÖRÜNTÜ MOTORU</p>
+            <div className="flex items-center gap-2 text-muted"><Gauge size={14} /><p className="text-[11px] font-bold">GÖRÜNTÜ MOTORU</p></div>
             <div className="mt-2 space-y-1.5 text-[10px] text-paper/75">
               <div className="flex justify-between"><span>Çözünürlük</span><span className="tabular font-bold">{preset.width}×{preset.height}</span></div>
               <div className="flex justify-between"><span>Kare hızı</span><span className="tabular font-bold">{fps} FPS</span></div>
@@ -306,9 +411,7 @@ export function VoiceRoom() {
           <button aria-label={camOn ? "Kamerayı kapat" : "Kamerayı aç"} onClick={toggleCam} className="icon-btn" data-active={camOn}>{camOn ? <Video size={17} /> : <VideoOff size={17} />}</button>
           <button
             aria-label={screenSharing ? "Paylaşımı durdur" : "Ekranı paylaş"}
-            onClick={() => void setScreenShare(!screenSharing).then((ok) => {
-              if (!ok) toast.error("Ekran paylaşımı başlatılamadı");
-            })}
+            onClick={() => void toggleShare()}
             className="icon-btn"
             data-active={screenSharing}
           ><MonitorUp size={17} /></button>
@@ -342,9 +445,19 @@ export function VoiceRoom() {
   );
 }
 
-function LocalScreenTile({ attachScreen }: { attachScreen: (el: HTMLVideoElement | null) => void }) {
+function LocalScreenTile({ attachScreen, stream }: { attachScreen: (el: HTMLVideoElement | null) => void; stream?: MediaStream | null }) {
   const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => { attachScreen(ref.current); }, [attachScreen]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (stream) {
+      el.srcObject = stream;
+      void el.play().catch(() => undefined);
+      return () => { el.srcObject = null; };
+    }
+    attachScreen(el);
+    return () => { el.srcObject = null; };
+  }, [stream, attachScreen]);
   return (
     <div className="voice-tile relative col-span-2 flex aspect-video items-center justify-center">
       <video ref={ref} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-contain" />

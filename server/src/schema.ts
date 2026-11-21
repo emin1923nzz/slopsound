@@ -1,9 +1,11 @@
 import { pgTable, uuid, text, timestamp, index, integer, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
+import type { ChatAttachment } from "./attachments.js";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   username: text("username").notNull().unique(),
+  displayName: text("display_name").notNull().default(""),
   passwordHash: text("password_hash"),
   googleSub: text("google_sub"),
   avatarColor: text("avatar_color").notNull().default("#8B6CFF"),
@@ -91,6 +93,7 @@ export const messages = pgTable("messages", {
   audioUrl: text("audio_url"),
   duration: text("duration"),
   reactions: jsonb("reactions").$type<{ emoji: string; count: number }[]>().notNull().default([]),
+  attachments: jsonb("attachments").$type<ChatAttachment[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("messages_channel_created_idx").on(table.channelId, table.createdAt)]);
 

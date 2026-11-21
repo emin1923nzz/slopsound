@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Square, X } from "lucide-react";
 import { useLiveKit } from "@/lib/livekit";
 import { useVideo } from "@/lib/video";
 
@@ -11,11 +11,20 @@ export function ScreenSharePip() {
   const [position, setPosition] = useState<Point>({ x: 0, y: 0 });
   const [snapped, setSnapped] = useState(false);
   const [hidden, setHidden] = useState(false);
-  const screenSharing = useLiveKit((s) => s.screenSharing);
+  const liveSharing = useLiveKit((s) => s.screenSharing);
+  const localSharing = useVideo((s) => s.screenSharing);
   const screens = useLiveKit((s) => s.screens);
-  const localStream = useVideo((s) => s.getScreenStream());
+  const setScreenShare = useLiveKit((s) => s.setScreenShare);
+  const liveLocalStream = useLiveKit((s) => s.localScreenStream);
+  const localVideoStream = useVideo((s) => s.getScreenStream());
+  const localStream = liveLocalStream ?? localVideoStream;
   const remote = screens[0] ?? null;
-  const visible = !hidden && (screenSharing || Boolean(remote));
+  const isSharing = liveSharing || localSharing;
+  const visible = !hidden && (isSharing || Boolean(remote));
+
+  useEffect(() => {
+    if (isSharing || remote) setHidden(false);
+  }, [isSharing, remote?.id]);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -71,10 +80,11 @@ export function ScreenSharePip() {
 
   function close() {
     setHidden(true);
-    if (screenSharing) {
-      useVideo.getState().stopScreenShare();
-      void useLiveKit.getState().setScreenShare(false);
-    }
+  }
+
+  function stop() {
+    setHidden(true);
+    void setScreenShare(false);
   }
 
   return (
@@ -86,7 +96,16 @@ export function ScreenSharePip() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <video ref={videoRef} autoPlay muted playsInline />
+      <video ref={videoRef} autoPlay muted playsInline style={{ objectFit: "contain" }} />
+      {isSharing && (
+        <button
+          aria-label="Paylaşımı durdur"
+          onClick={stop}
+          className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/80 transition hover:bg-danger hover:text-white"
+        >
+          <Square size={12} fill="currentColor" />
+        </button>
+      )}
       <button
         aria-label="Pencereyi kapat"
         onClick={close}
@@ -95,7 +114,7 @@ export function ScreenSharePip() {
         <X size={13} />
       </button>
       <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[9px] font-bold text-white/80">
-        {remote ? `${remote.name} paylaşıyor` : "Ekran paylaşımı"}
+        {remote && !localStream ? `${remote.name} paylaşıyor` : "Ekran paylaşımı"}
       </span>
     </div>
   );

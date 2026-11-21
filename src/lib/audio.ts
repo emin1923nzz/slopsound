@@ -69,7 +69,10 @@ type AudioState = {
   levels: number[];
   recording: boolean;
   recordingSeconds: number;
+  recordingError: string | null;
   lastRecordingUrl: string | null;
+  lastRecordingBlob: Blob | null;
+  clearRecordingError: () => void;
   ensureMic: () => Promise<boolean>;
   stopMic: () => void;
   setMuted: (value: boolean) => void;
@@ -215,7 +218,11 @@ export const useAudio = create<AudioState>()(persist((set, get) => {
     levels: [],
     recording: false,
     recordingSeconds: 0,
+    recordingError: null,
     lastRecordingUrl: null,
+    lastRecordingBlob: null,
+
+    clearRecordingError: () => set({ recordingError: null }),
 
     ensureMic: async () => {
       if (get().status === "ready" && engine.stream) return true;
@@ -314,28 +321,64 @@ export const useAudio = create<AudioState>()(persist((set, get) => {
 
     startRecording: async () => {
       const ok = await get().ensureMic();
-      if (!ok || !engine.stream || typeof MediaRecorder === "undefined") return false;
+      if (!ok || !engine.stream || typeof MediaRecorder === "undefined") {
+        set({ recording: false, recordingError: "Ses kaydı bu ortamda desteklenmiyor" });
+        return false;
+      }
       engine.chunks = [];
-      engine.recorder = new MediaRecorder(engine.stream);
-      engine.recorder.ondataavailable = (e) => { if (e.data.size) engine.chunks.push(e.data); };
-      engine.recorder.start();
+      try {
+        const recorder = new MediaRecorder(engine.stream);
+        engine.recorder = recorder;
+        recorder.ondataavailable = (e) => { if (e.data.size) engine.chunks.push(e.data); };
+        recorder.onerror = () => {
+          window.clearInterval(engine.recordTimer);
+          engine.recordTimer = 0;
+          engine.recorder = null;
+          engine.chunks = [];
+          set({ recording: false, recordingSeconds: 0, recordingError: "Ses kaydı sırasında bir hata oluştu" });
+        };
+        recorder.start(250);
+      } catch {
+        engine.recorder = null;
+        engine.chunks = [];
+        set({ recording: false, recordingError: "Ses kaydı başlatılamadı" });
+        return false;
+      }
       engine.recordStart = Date.now();
-      set({ recording: true, recordingSeconds: 0 });
+      set({ recording: true, recordingSeconds: 0, recordingError: null });
       engine.recordTimer = window.setInterval(() => {
         set({ recordingSeconds: Math.floor((Date.now() - engine.recordStart) / 1000) });
       }, 250);
       return true;
     },
     stopRecording: () => {
-      if (!engine.recorder) return;
+      const recorder = engine.recorder;
+      if (!recorder) return;
       window.clearInterval(engine.recordTimer);
-      engine.recorder.onstop = () => {
-        const blob = new Blob(engine.chunks, { type: engine.recorder?.mimeType || "audio/webm" });
+      engine.recordTimer = 0;
+      const mime = recorder.mimeType || "audio/webm";
+      const chunks = engine.chunks;
+      const previousUrl = get().lastRecordingUrl;
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mime });
+        if (previousUrl?.startsWith("blob:")) URL.revokeObjectURL(previousUrl);
         const url = URL.createObjectURL(blob);
-        set({ lastRecordingUrl: url, recording: false, recordingSeconds: 0 });
+        set({ lastRecordingBlob: blob, lastRecordingUrl: url, recording: false, recordingSeconds: 0 });
       };
-      engine.recorder.stop();
+      recorder.onerror = () => {
+        engine.recorder = null;
+        engine.chunks = [];
+        set({ recording: false, recordingSeconds: 0, recordingError: "Ses kaydı sırasında bir hata oluştu" });
+      };
+      try {
+        recorder.stop();
+      } catch {
+        engine.recorder = null;
+        engine.chunks = [];
+        set({ recording: false, recordingSeconds: 0, recordingError: "Ses kaydı durdurulamadı" });
+      }
       engine.recorder = null;
+      engine.chunks = [];
     },
     getStream: () => engine.stream,
   };

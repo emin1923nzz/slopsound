@@ -2,20 +2,19 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, X } from "lucide-react";
 
-const RELEASE_ID = "slopsound-0.1.5";
+const RELEASE_ID = "slopsound-0.1.6";
 
 const highlights = [
-  "Mor, gri ve siyah temelli sade arayüz",
-  "Dynamic Island tarzı sesli sohbet paneli",
-  "Sağa kaydırarak yanıtlama ve uzun basma menüsü",
-  "İmleci takip eden cam parlaması ve canlı ses halkası",
-  "Köşeye yapışan ekran paylaşımı penceresi",
-  "Discord tarzı profil: hitap, bio, banner ve avatar",
-  "1-5 yıl ve owner rozetleri",
-  "Otomatik uzaktan güncelleme ve FuntimeStudios imzası",
-  "GTA6 esintili yeni arka plan",
-  "Tüm kurulumlar için sorunsuz otomatik güncelleme",
-  "Google ile giriş ve production API bağlantısı düzeltildi",
+  "DM'lerde sesli ve görüntülü aramalar: doğrudan arkadaşına bağlan, ekranını paylaş",
+  "Sohbete fotoğraf, video ve sesli mesaj ekleri — gönder, dinle, izle",
+  "Uzun sohbetlerde kaydırma takılması ve gecikme sorunu giderildi",
+  "Sunlop artık sunucun ve DM'lerinde 4 farklı cevap moduyla yanıt veriyor",
+  "Görünen ad ve @kullanıcıadı ayrı ayarlanabiliyor; profilde handle görünüyor",
+  "Profil fotoğrafını artık bilgisayarından doğrudan yükleyebilirsin",
+  "Edge üzerinde üst çubuk/kenar çubuğu taşma hatası düzeltildi",
+  "AAA ekran paylaşımı: ekran, pencere veya sekme seçimi, 4K30'a kadar kalite",
+  "Paylaşım sırasında içerik ipucu, sistem sesi, duraklatma ve yeni kaynak seçimi",
+  "Ayarlar ekranındaki kısayol, güncelleme ve profil butonları yeniden düzenlendi",
 ];
 
 export function WhatsNew() {

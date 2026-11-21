@@ -13,17 +13,17 @@ import { SlopLogo } from "./SlopAvatar";
 type UpdateState = "checking" | "current" | "available" | "error" | "web";
 
 const notes = [
-  { icon: Radio, title: "Ses odaları", text: "Düşük gecikmeli konuşma, ekran paylaşımı ve canlı seviye halkaları." },
-  { icon: Sparkles, title: "Sunlop", text: "Sunucunda ve DM'lerinde seninle birlikte çalışan asistan." },
-  { icon: ShieldCheck, title: "Güvenli oturum", text: "HttpOnly cookie, rol tabanlı erişim ve denetim kayıtları." },
-  { icon: Zap, title: "Performans", text: "Sanallaştırılmış mesajlar, FPS profili ve adaptif WebRTC kalitesi." },
+  { icon: Radio, title: "Aramalar ve paylaşım", text: "DM sesli/görüntülü arama, ekler ve 4K30'a kadar AAA ekran paylaşımı." },
+  { icon: Sparkles, title: "Sunlop 4", text: "Sunucunda ve DM'lerinde dört farklı cevap moduyla çalışan asistan." },
+  { icon: ShieldCheck, title: "Profil ve güvenlik", text: "Görünen ad, @handle, PC'den fotoğraf yükleme ve güvenli oturum." },
+  { icon: Zap, title: "Performans", text: "Sohbet kaydırma ve gecikme düzeltmeleri, adaptif WebRTC kalitesi." },
 ];
 
 export function Launcher({ loading, onClose }: { loading: boolean; onClose: () => void }) {
   const username = useApp((s) => s.user?.username ?? "Misafir");
   const authLoading = useApp((s) => s.authLoading);
   const bootstrapLoading = useApp((s) => s.bootstrapLoading);
-  const [version, setVersion] = useState("0.1.5");
+  const [version, setVersion] = useState("0.1.6");
   const [updateState, setUpdateState] = useState<UpdateState>("checking");
   const [update, setUpdate] = useState<Update | null>(null);
   const [installing, setInstalling] = useState(false);
