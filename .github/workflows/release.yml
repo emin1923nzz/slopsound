@@ -83,9 +83,27 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           New-Item -ItemType Directory -Path certificate -Force | Out-Null
-          Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
-          certutil -decode certificate/tempCert.txt certificate/certificate.pfx
-          Remove-Item -Path certificate/tempCert.txt
+          $raw = $env:WINDOWS_CERTIFICATE.Trim()
+          if (-not $raw) { throw "WINDOWS_CERTIFICATE secret is required" }
+          $clean = $raw -replace "-----BEGIN[^-]+-----", "" -replace "-----END[^-]+-----", "" -replace "\s", ""
+          $bytes = $null
+          for ($i = 0; $i -lt 3; $i++) {
+            try { $bytes = [Convert]::FromBase64String($clean) } catch { throw "WINDOWS_CERTIFICATE is not valid base64" }
+            $text = [Text.Encoding]::ASCII.GetString($bytes)
+            if ($text -match "-----BEGIN") {
+              $clean = $text -replace "-----BEGIN[^-]+-----", "" -replace "-----END[^-]+-----", "" -replace "\s", ""
+              continue
+            }
+            if ($text -match "^[A-Za-z0-9+/=\r\n]+$") {
+              $clean = $text -replace "\s", ""
+              continue
+            }
+            break
+          }
+          if ($null -eq $bytes -or $bytes.Length -lt 2 -or $bytes[0] -ne 0x30) { throw "WINDOWS_CERTIFICATE did not decode to a PFX" }
+          [IO.File]::WriteAllBytes("certificate/certificate.pfx", $bytes)
+          "pfx_bytes=$($bytes.Length)"
+          "pfx_prefix=$([BitConverter]::ToString($bytes[0..([Math]::Min(7, $bytes.Length - 1))]))"
           $password = if ($env:WINDOWS_CERTIFICATE_PASSWORD) { ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText } else { New-Object System.Security.SecureString }
           Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
 
