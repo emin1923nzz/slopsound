@@ -1,6 +1,6 @@
 [package]
 name = "slopsound"
-version = "0.1.1"
+version = "0.1.2"
 description = "SlopSound — konuş, oyna, takıl"
 authors = ["FuntimeStudios"]
 edition = "2021"
