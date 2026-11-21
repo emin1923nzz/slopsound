@@ -66,7 +66,7 @@
       "endpoints": ["https://github.com/emin1923nzz/slopsound/releases/latest/download/latest.json"],
       "dialog": false,
       "windows": { "installMode": "passive" },
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1OTAzNTUxQzdBM0E4QTIKUldTaXFLUEhVVFdRVlhhR3g3eCtiaktDQnVqU1VBT0dGbkNhUXNGVlZXcjVjVC9ZZGFjeGE1MnMK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4MkFFQTg2MTZBQTY4NDkKUldSSmFLb1dodW9xbUZZSmNHbjZPSy9KVzhNUjZhN2RHNGJVNU5qMTJYR1hwcENTYXN2dzBxN3gK"
     }
   }
 }
