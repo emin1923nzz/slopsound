@@ -1,6 +1,5 @@
 import type { AuthUser, Bootstrap, Message } from "./data";
-
-const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:3000";
+import { API_BASE } from "./config";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -9,7 +8,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: "include",
     headers: {

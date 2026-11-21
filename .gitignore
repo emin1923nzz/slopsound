@@ -8,4 +8,5 @@ src-tauri/gen
 .env
 .env.*
 !.env.example
+!.env.production
 !.env.render.example

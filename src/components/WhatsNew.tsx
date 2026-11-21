@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, X } from "lucide-react";
 
-const RELEASE_ID = "slopsound-0.1.2";
+const RELEASE_ID = "slopsound-0.1.3";
 
 const highlights = [
   "Mor, gri ve siyah temelli sade arayüz",
@@ -15,6 +15,7 @@ const highlights = [
   "Otomatik uzaktan güncelleme ve FuntimeStudios imzası",
   "GTA6 esintili yeni arka plan",
   "Tüm kurulumlar için sorunsuz otomatik güncelleme",
+  "Google ile giriş ve production API bağlantısı düzeltildi",
 ];
 
 export function WhatsNew() {

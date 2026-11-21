@@ -1,13 +1,12 @@
 import { io, type Socket } from "socket.io-client";
 import type { Message } from "./data";
-
-const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:3000";
+import { API_BASE } from "./config";
 
 let socket: Socket | null = null;
 
 export function connectRealtime() {
   if (socket?.connected) return socket;
-  socket ??= io(BASE, { withCredentials: true, transports: ["websocket", "polling"] });
+  socket ??= io(API_BASE, { withCredentials: true, transports: ["websocket", "polling"] });
   if (!socket.connected) socket.connect();
   return socket;
 }

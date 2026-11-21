@@ -6,8 +6,7 @@ import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
 import { SlopLogo } from "./SlopAvatar";
-
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "http://localhost:3000";
+import { API_BASE } from "@/lib/config";
 
 export type HealthStatus = { ok: boolean; maintenance?: boolean; message?: string };
 
