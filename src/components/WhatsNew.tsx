@@ -2,19 +2,14 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, X } from "lucide-react";
 
-const RELEASE_ID = "slopsound-0.1.7";
+const RELEASE_ID = "slopsound-0.1.8";
 
 const highlights = [
-  "Mesaj kutusu artık alt çubuğun altında kalmıyor; Enter ile aynı mesaj iki kez gönderilmiyor",
-  "Sohbete PDF, ZIP, Word, Excel, PowerPoint ve metin dosyaları eklenebiliyor",
-  "Sunlop DM'lerde ve kanallarda güvenilir şekilde yanıt veriyor",
-  "Sesli/görüntülü aramalar ve DM ekran paylaşımı düzeltildi",
-  "Mesajlara yanıtla, ilet ve hızlı emoji tepkileri eklendi",
-  "Sunucu ayarlarından kanal, ses odası, grup ve davet linki oluşturabilirsin",
-  "Grup sohbetleri kurulabiliyor; kanallar artık sunuculara göre ayrılıyor",
-  "Yeni sunucularda hazır yazı ve ses kanalları açılıyor",
-  "Arayüz gecikmesi ve gereksiz animasyonlar azaltıldı",
-  "Davet linkleri uygulama içinde kopyalanıyor",
+  "Tarayıcı sağ tık menüsü kaldırıldı; uygulama genelinde özel context menüleri geldi",
+  "Mesajlarda yanıtla, tepki, ilet, sabitle, kopyala, link ve medya işlemleri sağ tıkla erişilebilir",
+  "Mesaj kutusunda kes, kopyala, yapıştır ve tümünü seç artık özel menüde",
+  "Kanallar, DM'ler, üyeler, sunucular ve profil için hızlı sağ tık işlemleri eklendi",
+  "Metin seçimi, medya önizleme ve bağlantılar için tutarlı menüler sağlandı",
 ];
 
 export function WhatsNew() {

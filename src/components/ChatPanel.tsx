@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { DialogTitle } from "@radix-ui/react-dialog";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -7,6 +7,7 @@ import {
   Hash, Volume2, Megaphone, Pin, Bell, Search, Plus, Smile,
   ArrowUp, ArrowDown, Sparkles, Phone, Video, MoreHorizontal, Mic, Square,
   Reply, Copy, Trash2, X, FileText, Download, Forward,
+  Link2, ExternalLink, Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
@@ -14,9 +15,15 @@ import { startCall } from "@/lib/callStore";
 import type { Attachment, Message } from "@/lib/data";
 import { formatDuration, useAudio } from "@/lib/audio";
 import { openExternalHttp } from "@/lib/native";
+import { copyToClipboard, findFirstLink } from "@/lib/context-menu";
 import { cn } from "@/lib/utils";
-import { Button, Dialog, DialogContent, Tooltip, TooltipContent, TooltipTrigger } from "./ui";
+import {
+  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
+  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger, Dialog, DialogContent,
+  Tooltip, TooltipContent, TooltipTrigger,
+} from "./ui";
 import { BadgeChips } from "./BadgeChips";
+import { InputContextMenu } from "./InputContextMenu";
 import { SlopAvatar } from "./SlopAvatar";
 
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -137,6 +144,105 @@ function readFile(file: File): Promise<Attachment> {
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉", "👀", "🙏", "💯", "😅", "🤝", "✨", "😎"];
 
+type MessageContextMenuProps = {
+  message: Message;
+  pinned: boolean;
+  onReply: () => void;
+  onReact: (emoji: string) => void;
+  onForward: () => void;
+  onPin: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+  onOpenMedia: (url: string) => void;
+  children: ReactNode;
+};
+
+function MessageContextMenu({
+  message, pinned, onReply, onReact, onForward, onPin, onCopy, onDelete, onOpenMedia, children,
+}: MessageContextMenuProps) {
+  const link = findFirstLink(message.text);
+  const [selectedText, setSelectedText] = useState("");
+  const attachment = message.attachments?.[0];
+  const mediaUrl = attachment?.url ?? message.audioUrl ?? null;
+  const imageUrl = attachment?.kind === "image" ? attachment.url : null;
+  const isFile = attachment?.kind === "file";
+
+  async function copyValue(text: string, success: string) {
+    try {
+      await copyToClipboard(text);
+      toast.success(success);
+    } catch {
+      toast.error("Kopyalanamadı");
+    }
+  }
+
+  async function openLink() {
+    if (!link) return;
+    try {
+      await openExternalHttp(link);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Bağlantı açılamadı");
+    }
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(event) => {
+        const selection = window.getSelection();
+        setSelectedText(selection && event.currentTarget.contains(selection.anchorNode) ? selection.toString().trim() : "");
+      }}>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={onReply}><Reply size={14} className="text-brand" /> Yanıtla</ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger><Smile size={14} className="text-warn" /> Tepki ekle</ContextMenuSubTrigger>
+          <ContextMenuSubContent className="grid grid-cols-6 gap-1 p-2">
+            {QUICK_EMOJIS.map((emoji) => (
+              <ContextMenuItem
+                key={emoji}
+                onSelect={() => onReact(emoji)}
+                className="grid h-8 w-8 place-items-center p-0 text-[16px]"
+              >
+                {emoji}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuItem onSelect={onForward}><Forward size={14} className="text-lime" /> İlet</ContextMenuItem>
+        <ContextMenuItem onSelect={onPin}><Pin size={14} className="text-lime" /> {pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</ContextMenuItem>
+        <ContextMenuItem onSelect={onCopy}><Copy size={14} className="text-muted" /> Metni kopyala</ContextMenuItem>
+        {selectedText && selectedText !== message.text && (
+          <ContextMenuItem onSelect={() => void copyValue(selectedText, "Seçim kopyalandı")}><Copy size={14} className="text-muted" /> Seçimi kopyala</ContextMenuItem>
+        )}
+        {link && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void copyValue(link, "Link kopyalandı")}><Link2 size={14} className="text-brand" /> Linki kopyala</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void openLink()}><ExternalLink size={14} className="text-brand" /> Linki aç</ContextMenuItem>
+          </>
+        )}
+        {mediaUrl && (
+          <>
+            <ContextMenuSeparator />
+            {isFile && attachment && (
+              <ContextMenuItem onSelect={() => downloadAttachment(attachment)}><Download size={14} className="text-lime" /> Dosyayı indir</ContextMenuItem>
+            )}
+            {imageUrl && (
+              <ContextMenuItem onSelect={() => onOpenMedia(imageUrl)}><ImageIcon size={14} className="text-lime" /> Görseli aç</ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={() => void copyValue(mediaUrl, "Medya URL'si kopyalandı")}><Copy size={14} className="text-muted" /> Medya URL'sini kopyala</ContextMenuItem>
+          </>
+        )}
+        {message.own && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onDelete} className="text-danger"><Trash2 size={14} /> Sil</ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function EmojiPicker({ onSelect, children }: { onSelect: (emoji: string) => void; children: React.ReactNode }) {
   return (
     <DropdownMenu.Root>
@@ -163,7 +269,15 @@ function MediaLightbox({ url, onClose }: { url: string; onClose: () => void }) {
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="flex max-h-[90vh] w-[min(1100px,94vw)] flex-col items-center overflow-auto p-4">
         <DialogTitle className="sr-only">Görsel önizleme</DialogTitle>
-        <img src={url} alt="Büyük görsel" className="max-h-[78vh] max-w-full rounded-xl object-contain" />
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <img src={url} alt="Büyük görsel" className="max-h-[78vh] max-w-full rounded-xl object-contain" />
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onSelect={() => void copyToClipboard(url).then(() => toast.success("Görsel URL'si kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Görsel URL'sini kopyala</ContextMenuItem>
+            <ContextMenuItem onSelect={onClose}><X size={14} className="text-danger" /> Önizlemeyi kapat</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
         <p className="mt-3 max-w-full break-all text-[10px] text-muted">{url.startsWith("data:") ? "Yerel görsel" : url}</p>
       </DialogContent>
     </Dialog>
@@ -217,7 +331,7 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
   function toggleMute() {
     if (!conversationId) return;
     toggleChannelMute(conversationId);
-    toast.success(muted ? "Kanal bildirimleri açıldı" : "Kanal sessize alındı");
+    toast.success(muted ? "Bildirimler açıldı" : "Bildirimler sessize alındı");
   }
 
   function startAudio() {
@@ -278,7 +392,7 @@ function ChannelHeader({ searchOpen, onToggleSearch, onFindMessage }: ChannelHea
           <DropdownMenu.Portal>
             <DropdownMenu.Content align="end" sideOffset={8} className="glass z-[160] w-[210px] rounded-panel p-2 shadow-float outline-none">
               <DropdownMenu.Item onSelect={openNotifications} className="cursor-pointer rounded-xl px-3 py-2 text-[11.5px] font-bold outline-none data-[highlighted]:bg-white/[.08]">Bildirim ayarları</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={toggleMute} className="cursor-pointer rounded-xl px-3 py-2 text-[11.5px] font-bold outline-none data-[highlighted]:bg-white/[.08]">{muted ? "Kanalın sessini aç" : "Kanalı sessize al"}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={toggleMute} className="cursor-pointer rounded-xl px-3 py-2 text-[11.5px] font-bold outline-none data-[highlighted]:bg-white/[.08]">{muted ? "Bildirimleri aç" : "Bildirimleri sessize al"}</DropdownMenu.Item>
               <DropdownMenu.Separator className="my-1 h-px bg-white/[.07]" />
               <DropdownMenu.Item onSelect={() => { setSettingsSection("Görünüm"); setView("settings"); toast("Ayarlar açıldı"); }} className="cursor-pointer rounded-xl px-3 py-2 text-[11.5px] font-bold outline-none data-[highlighted]:bg-white/[.08]">Ayarlar</DropdownMenu.Item>
             </DropdownMenu.Content>
@@ -302,6 +416,7 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
   const togglePin = useApp((s) => s.togglePin);
   const pinned = useApp((s) => s.pinnedMessageIds.includes(message.id));
   const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
   const hasAudioAttachment = Boolean(message.attachments?.some((attachment) => attachment.kind === "audio"));
@@ -322,6 +437,7 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     drag.current = { active: true, startX: event.clientX, startY: event.clientY, moved: false, x: 0 };
+    setDragging(false);
     event.currentTarget.setPointerCapture(event.pointerId);
     longPress.current = window.setTimeout(() => {
       if (!drag.current.moved) {
@@ -338,6 +454,8 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
     const dy = event.clientY - drag.current.startY;
     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
       drag.current.moved = true;
+      setDragging(true);
+      window.getSelection()?.removeAllRanges();
       window.clearTimeout(longPress.current);
     }
     if (dx > 0 && Math.abs(dx) > Math.abs(dy)) {
@@ -350,6 +468,7 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
     window.clearTimeout(longPress.current);
     if (!drag.current.active) return;
     drag.current.active = false;
+    setDragging(false);
     event.currentTarget.releasePointerCapture(event.pointerId);
     if (drag.current.x > 64) reply();
     else { setDragX(0); drag.current.x = 0; }
@@ -373,15 +492,27 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
             className="reply-indicator"
             style={{ opacity: dragX > 20 ? 1 : 0, transform: `scale(${dragX > 20 ? 1 : .5})` }}
           ><Reply size={17} className="text-brand" /></span>
-          <div
-            className="message-bubble"
-            data-own={message.own ? "true" : "false"}
-            style={{ transform: `translateX(${dragX}px)` }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
+          <MessageContextMenu
+            message={message}
+            pinned={pinned}
+            onReply={reply}
+            onReact={(emoji) => void reactToMessage(message.id, emoji)}
+            onForward={() => onForward(message)}
+            onPin={() => { togglePin(message.id); toast.success(pinned ? "Sabitleme kaldırıldı" : "Mesaj sabitlendi"); }}
+            onCopy={copyText}
+            onDelete={() => { deleteMessage(message.id); toast.success("Mesaj silindi"); }}
+            onOpenMedia={onOpenMedia}
           >
+            <div
+              className="message-bubble"
+              data-own={message.own ? "true" : "false"}
+              data-dragging={dragging ? "true" : undefined}
+              style={{ transform: `translateX(${dragX}px)` }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-display text-[12.5px] font-extrabold" style={{ color: message.color }}>{message.author}</span>
               {message.ai && <span className="rounded-full bg-brand/20 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-brand">AI</span>}
@@ -497,7 +628,8 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
                 )}
               </div>
             )}
-          </div>
+            </div>
+          </MessageContextMenu>
         </div>
       </div>
       <div className="flex shrink-0 items-start gap-0.5">
@@ -618,6 +750,7 @@ function Composer() {
   const [pending, setPending] = useState<Attachment | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const lastTypingAt = useRef(0);
   const sendMessage = useApp((s) => s.sendMessage);
   const sendVoiceMessage = useApp((s) => s.sendVoiceMessage);
@@ -797,13 +930,16 @@ function Composer() {
             {recording ? <Square size={14} fill="currentColor" /> : <Mic size={16} />}
           </button>
           {recording && <span className="shrink-0 text-[10px] font-bold tabular text-danger">{formatDuration(recordingSeconds)}</span>}
-          <input
-            value={value}
-            onChange={onChange}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!e.repeat) void submit(); } }}
-            placeholder="Mesaj yaz... Sunlop yaz, cevap versin"
-            className="min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-muted/60"
-          />
+          <InputContextMenu inputRef={inputRef}>
+            <input
+              ref={inputRef}
+              value={value}
+              onChange={onChange}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!e.repeat) void submit(); } }}
+              placeholder="Mesaj yaz... Sunlop yaz, cevap versin"
+              className="min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-muted/60"
+            />
+          </InputContextMenu>
           <button
             onClick={openSunlop}
             className="grid h-8 w-8 shrink-0 place-items-center rounded-full transition hover:scale-110"
@@ -826,6 +962,7 @@ function Composer() {
 export function ChatPanel() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const allMessages = useApp((s) => s.messages);
@@ -873,14 +1010,17 @@ export function ChatPanel() {
       {searchOpen && (
         <div className="flex shrink-0 items-center gap-2 border-b border-white/[.06] bg-surface/20 px-5 py-2">
           <Search size={14} className="shrink-0 text-muted" />
-          <input
-            autoFocus
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Bu sohbette ara..."
-            aria-label="Bu sohbette ara"
-            className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted/60"
-          />
+          <InputContextMenu inputRef={searchInputRef}>
+            <input
+              ref={searchInputRef}
+              autoFocus
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Bu sohbette ara..."
+              aria-label="Bu sohbette ara"
+              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted/60"
+            />
+          </InputContextMenu>
           {searchQuery.trim() && <span className="shrink-0 text-[10px] text-muted">{searchResults} sonuç</span>}
           <button
             aria-label="Aramayı kapat"

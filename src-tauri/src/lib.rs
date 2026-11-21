@@ -22,6 +22,16 @@ fn is_app_origin(url: &tauri::Url) -> bool {
     }
 }
 
+const DISABLE_NATIVE_CONTEXT_MENU_JS: &str = r#"
+(() => {
+  const allow = () => new URLSearchParams(location.search).has("nativeMenu");
+  document.addEventListener("contextmenu", (event) => {
+    if (allow() || event.defaultPrevented) return;
+    event.preventDefault();
+  });
+})();
+"#;
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -64,7 +74,19 @@ pub fn run() {
                     }
                     NewWindowResponse::Deny
                 })
+                .initialization_script(DISABLE_NATIVE_CONTEXT_MENU_JS)
                 .build()?;
+
+            #[cfg(windows)]
+            {
+                let _ = _main_window.with_webview(|webview| unsafe {
+                    if let Ok(core) = webview.controller().CoreWebView2() {
+                        if let Ok(settings) = core.Settings() {
+                            let _ = settings.SetAreDefaultContextMenusEnabled(false);
+                        }
+                    }
+                });
+            }
 
             let show = MenuItem::new(app, "SlopSound'u Göster", true, None::<&str>)?;
             let quit = MenuItem::new(app, "Çık", true, None::<&str>)?;

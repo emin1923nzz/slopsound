@@ -19,7 +19,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES="v0.1.7: Mesaj kutusu ve Enter gönderim düzeltmesi, PDF/ZIP/Ofis dosyası ekleri, Sunlop düzeltmesi, sesli/görüntülü arama ve ekran paylaşımı, yanıtla/ilet/emoji tepkileri, sunucu kanal/grup/davet yönetimi, grup sohbetleri ve performans iyileştirmeleri."
+          NOTES="v0.1.8: Tarayıcı sağ tık menüsü kaldırıldı; mesaj, input, seçili metin, link, medya, kanal, DM, üye, sunucu ve profil için Discord benzeri özel context menüleri eklendi."
           gh release create "$GITHUB_REF_NAME" \
             --title "SlopSound $GITHUB_REF_NAME" \
             --notes "$NOTES" \

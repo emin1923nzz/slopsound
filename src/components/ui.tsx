@@ -5,6 +5,7 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -148,6 +149,81 @@ export const DialogContent = React.forwardRef<
   </DialogPrimitive.Portal>
 ));
 DialogContent.displayName = "DialogContent";
+
+export const ContextMenu = ContextMenuPrimitive.Root;
+export const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
+export const ContextMenuSub = ContextMenuPrimitive.Sub;
+export const ContextMenuContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
+>(({ className, sideOffset = 6, ...props }, ref) => (
+  <ContextMenuPrimitive.Portal>
+    <ContextMenuPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        "glass z-[210] min-w-[190px] rounded-panel p-2 shadow-float outline-none animate-scale-in",
+        className,
+      )}
+      {...props}
+    />
+  </ContextMenuPrimitive.Portal>
+));
+ContextMenuContent.displayName = "ContextMenuContent";
+
+export const ContextMenuItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Item
+    ref={ref}
+    className={cn(
+      "flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 text-[11.5px] font-bold text-paper outline-none transition data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-white/[.08]",
+      className,
+    )}
+    {...props}
+  />
+));
+ContextMenuItem.displayName = "ContextMenuItem";
+
+export const ContextMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Separator ref={ref} className={cn("my-1 h-px bg-white/[.07]", className)} {...props} />
+));
+ContextMenuSeparator.displayName = "ContextMenuSeparator";
+
+export const ContextMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-pointer select-none items-center gap-2 rounded-xl px-3 py-2 text-[11.5px] font-bold text-paper outline-none data-[highlighted]:bg-white/[.08]",
+      className,
+    )}
+    {...props}
+  />
+));
+ContextMenuSubTrigger.displayName = "ContextMenuSubTrigger";
+
+export const ContextMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
+>(({ className, sideOffset = 4, ...props }, ref) => (
+  <ContextMenuPrimitive.SubContent
+    ref={ref}
+    sideOffset={sideOffset}
+    className={cn(
+      "glass z-[211] min-w-[170px] rounded-panel p-2 shadow-float outline-none animate-scale-in",
+      className,
+    )}
+    {...props}
+  />
+));
+ContextMenuSubContent.displayName = "ContextMenuSubContent";
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...props }, ref) => (

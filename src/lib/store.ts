@@ -117,7 +117,7 @@ type State = {
   updateProfile: (patch: Partial<Profile>) => Promise<boolean>;
   createServer: (name: string) => Promise<boolean>;
   createChannel: (name: string, type: "text" | "voice" | "announcement", groupLabel: string) => Promise<boolean>;
-  createInvite: () => Promise<string | null>;
+  createInvite: (serverId?: string) => Promise<string | null>;
   joinInvite: (code: string) => Promise<void>;
   createDM: (username: string) => Promise<string | null>;
   createGroupDM: (name: string, memberIds: string[]) => Promise<string | null>;
@@ -640,8 +640,8 @@ export const useApp = create<State>()(persist((set, get) => {
       }
     },
 
-    createInvite: async () => {
-      const serverId = get().activeServer;
+    createInvite: async (serverIdOverride) => {
+      const serverId = serverIdOverride ?? get().activeServer;
       if (!serverId) return null;
       try {
         const invite = await api.createInvite(serverId);

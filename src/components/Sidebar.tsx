@@ -1,17 +1,22 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { DialogTitle } from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Hash, Volume2, Megaphone, ChevronDown, Plus, Compass, Download, Search,
-  MessageCircle, Mic, MicOff, Video, VideoOff, UserPlus,
+  Hash, Volume2, VolumeX, Megaphone, ChevronDown, Plus, Compass, Download, Search,
+  MessageCircle, Mic, MicOff, Video, VideoOff, UserPlus, Copy, Settings2, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { INVITE_BASE_URL } from "@/lib/config";
 import { copyText } from "@/lib/native";
+import { copyToClipboard } from "@/lib/context-menu";
 import { useLiveKit } from "@/lib/livekit";
 import { cn } from "@/lib/utils";
-import { Button, Dialog, DialogContent, Input, Tooltip, TooltipContent, TooltipTrigger } from "./ui";
+import {
+  Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
+  ContextMenuTrigger, Dialog, DialogContent, Input, Tooltip, TooltipContent, TooltipTrigger,
+} from "./ui";
+import { InputContextMenu } from "./InputContextMenu";
 import { SlopAvatar, SlopLogo } from "./SlopAvatar";
 
 function Rail() {
@@ -21,7 +26,20 @@ function Rail() {
   const setView = useApp((s) => s.setView);
   const unreadDMs = useApp((s) => s.unreadDMs);
   const servers = useApp((s) => s.servers);
+  const createInvite = useApp((s) => s.createInvite);
+  const setSettingsSection = useApp((s) => s.setSettingsSection);
   const dmUnread = Object.values(unreadDMs).reduce((a, b) => a + b, 0);
+
+  async function invite(serverId: string) {
+    const code = await createInvite(serverId);
+    if (!code) return toast.error(useApp.getState().error ?? "Davet oluşturulamadı");
+    try {
+      await copyText(`${INVITE_BASE_URL}${code}`);
+      toast.success("Davet linki kopyalandı");
+    } catch {
+      toast.success("Davet oluşturuldu", { description: `${INVITE_BASE_URL}${code}` });
+    }
+  }
 
   return (
     <div className="flex w-[68px] shrink-0 flex-col items-center gap-2 border-r border-white/[.05] bg-ink/60 py-3">
@@ -36,18 +54,29 @@ function Rail() {
       <div className="my-1 h-px w-8 bg-white/10" />
       <div className="flex flex-col items-center gap-2.5 overflow-y-auto no-scrollbar">
         {servers.map((server) => (
-          <Tooltip key={server.id}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => selectServer(server.id)}
-                className={cn("rail-btn font-display text-[12px]", activeServer === server.id && "text-brand")}
-                data-active={activeServer === server.id}
-              >
-                {server.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{server.name}</TooltipContent>
-          </Tooltip>
+          <ContextMenu key={server.id}>
+            <Tooltip>
+              <ContextMenuTrigger asChild>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => selectServer(server.id)}
+                    className={cn("rail-btn font-display text-[12px]", activeServer === server.id && "text-brand")}
+                    data-active={activeServer === server.id}
+                  >
+                    {server.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()}
+                  </button>
+                </TooltipTrigger>
+              </ContextMenuTrigger>
+              <TooltipContent side="right">{server.name}</TooltipContent>
+            </Tooltip>
+            <ContextMenuContent side="right">
+              <ContextMenuItem onSelect={() => selectServer(server.id)}><Hash size={14} className="text-brand" /> Sunucuyu aç</ContextMenuItem>
+              <ContextMenuItem onSelect={() => void invite(server.id)}><Link2 size={14} className="text-lime" /> Davet linki kopyala</ContextMenuItem>
+              <ContextMenuItem onSelect={() => void copyToClipboard(server.name).then(() => toast.success("Sunucu adı kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Sunucu adını kopyala</ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={() => { setSettingsSection("Sunucular"); setView("settings"); }}><Settings2 size={14} className="text-muted" /> Ayarlar</ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         ))}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -102,6 +131,10 @@ function ServerPanel() {
   const members = useApp((s) => s.members);
   const voiceChannelId = useApp((s) => s.voiceChannelId);
   const createInvite = useApp((s) => s.createInvite);
+  const toggleChannelMute = useApp((s) => s.toggleChannelMute);
+  const mutedChannelIds = useApp((s) => s.mutedChannelIds);
+  const setView = useApp((s) => s.setView);
+  const setSettingsSection = useApp((s) => s.setSettingsSection);
   const server = servers.find((s) => s.id === activeServer) ?? servers[0];
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
@@ -162,23 +195,39 @@ function ServerPanel() {
                   {group.channels.map((channel) => {
                     const isVoice = channel.type === "voice";
                     const isActive = activeChannel === channel.id || (voiceConnected && voiceChannel === channel.name);
+                    const muted = mutedChannelIds.includes(channel.id);
                     return (
-                      <button
-                        key={channel.id}
-                        onClick={() => (isVoice ? void joinVoice(channel.id) : selectChannel(channel.id))}
-                        className="channel-row channel-item group"
-                        data-active={isActive}
-                        data-name={channel.name}
-                      >
-                        <span className="shrink-0 opacity-80"><ChannelIcon type={channel.type} /></span>
-                        <span className="min-w-0 flex-1 truncate text-left">{channel.name}</span>
-                        {channel.live && <span className="h-1.5 w-1.5 rounded-full bg-lime shadow-[0_0_8px_hsl(var(--lime)/.8)]" />}
-                        {channel.unread && <span className="unread-badge grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{channel.unread}</span>}
-                        {isVoice && channel.people ? <span className="text-[10px] font-bold text-muted">{channel.people}</span> : null}
-                        {isVoice && voiceConnected && voiceChannelId === channel.id && (
-                          <span onClick={(e) => { e.stopPropagation(); leaveVoice(); }} className="grid h-5 w-5 place-items-center rounded-full bg-danger/20 text-danger"><XIcon /></span>
-                        )}
-                      </button>
+                      <ContextMenu key={channel.id}>
+                        <ContextMenuTrigger asChild>
+                          <button
+                            onClick={() => (isVoice ? void joinVoice(channel.id) : selectChannel(channel.id))}
+                            className="channel-row channel-item group"
+                            data-active={isActive}
+                            data-name={channel.name}
+                          >
+                            <span className="shrink-0 opacity-80"><ChannelIcon type={channel.type} /></span>
+                            <span className="min-w-0 flex-1 truncate text-left">{channel.name}</span>
+                            {channel.live && <span className="h-1.5 w-1.5 rounded-full bg-lime shadow-[0_0_8px_hsl(var(--lime)/.8)]" />}
+                            {channel.unread && <span className="unread-badge grid h-[18px] min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{channel.unread}</span>}
+                            {isVoice && channel.people ? <span className="text-[10px] font-bold text-muted">{channel.people}</span> : null}
+                            {isVoice && voiceConnected && voiceChannelId === channel.id && (
+                              <span onClick={(e) => { e.stopPropagation(); leaveVoice(); }} className="grid h-5 w-5 place-items-center rounded-full bg-danger/20 text-danger"><XIcon /></span>
+                            )}
+                          </button>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem onSelect={() => (isVoice ? void joinVoice(channel.id) : selectChannel(channel.id))}>
+                            {isVoice ? <Volume2 size={14} className="text-lime" /> : <Hash size={14} className="text-brand" />} {isVoice ? "Ses odasına katıl" : "Kanalı aç"}
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => toggleChannelMute(channel.id)}>
+                            {muted ? <Volume2 size={14} className="text-lime" /> : <VolumeX size={14} className="text-muted" />} {muted ? "Bildirimleri aç" : "Bildirimleri sessize al"}
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => void copyToClipboard(channel.name).then(() => toast.success("Kanal adı kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Adı kopyala</ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem onSelect={() => void invite()}><Link2 size={14} className="text-lime" /> Davet linki kopyala</ContextMenuItem>
+                          <ContextMenuItem onSelect={() => { setSettingsSection("Bildirimler"); setView("settings"); }}><Settings2 size={14} className="text-muted" /> Ayarlar</ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     );
                   })}
                 </div>
@@ -205,6 +254,9 @@ function DMPanel() {
   const members = useApp((s) => s.members);
   const user = useApp((s) => s.user);
   const createGroupDM = useApp((s) => s.createGroupDM);
+  const toggleChannelMute = useApp((s) => s.toggleChannelMute);
+  const mutedChannelIds = useApp((s) => s.mutedChannelIds);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [groupOpen, setGroupOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -219,12 +271,15 @@ function DMPanel() {
     <>
       <div className="relative mb-3">
         <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="DM ara..."
-          className="w-full rounded-full border border-white/[.06] bg-black/25 py-2.5 pl-9 pr-3 text-[12px] outline-none transition placeholder:text-muted/60 focus:border-brand/50"
-        />
+        <InputContextMenu inputRef={searchInputRef}>
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="DM ara..."
+            className="w-full rounded-full border border-white/[.06] bg-black/25 py-2.5 pl-9 pr-3 text-[12px] outline-none transition placeholder:text-muted/60 focus:border-brand/50"
+          />
+        </InputContextMenu>
       </div>
       <div className="no-scrollbar flex-1 overflow-y-auto pb-4">
         <div className="mb-2 flex items-center justify-between px-3">
@@ -235,26 +290,39 @@ function DMPanel() {
           </div>
         </div>
         <div className="space-y-[var(--row-gap)]">
-          {filtered.map((dm) => (
-            <button
-              key={dm.id}
-              onClick={() => selectDM(dm.id)}
-              className={cn("channel-row", activeDM === dm.id && "data-[active=true]:bg-brand/10")}
-              data-active={activeDM === dm.id}
-            >
-              <SlopAvatar name={dm.name} size={32} status={dm.status} showDot />
-              <div className="min-w-0 flex-1 text-left">
-                <p className="truncate text-[12.5px] font-bold text-paper">{dm.name}</p>
-                <p className="truncate text-[10.5px] text-muted">{dm.preview}</p>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                <span className="text-[9.5px] text-muted/70">{dm.time}</span>
-                {unreadDMs[dm.id] ? (
-                  <span className="unread-badge grid h-[17px] min-w-[17px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{unreadDMs[dm.id]}</span>
-                ) : null}
-              </div>
-            </button>
-          ))}
+          {filtered.map((dm) => {
+            const muted = mutedChannelIds.includes(dm.id);
+            return (
+              <ContextMenu key={dm.id}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    onClick={() => selectDM(dm.id)}
+                    className={cn("channel-row", activeDM === dm.id && "data-[active=true]:bg-brand/10")}
+                    data-active={activeDM === dm.id}
+                  >
+                    <SlopAvatar name={dm.name} size={32} status={dm.status} showDot />
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-[12.5px] font-bold text-paper">{dm.name}</p>
+                      <p className="truncate text-[10.5px] text-muted">{dm.preview}</p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-[9.5px] text-muted/70">{dm.time}</span>
+                      {unreadDMs[dm.id] ? (
+                        <span className="unread-badge grid h-[17px] min-w-[17px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{unreadDMs[dm.id]}</span>
+                      ) : null}
+                    </div>
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem onSelect={() => selectDM(dm.id)}><MessageCircle size={14} className="text-brand" /> DM'yi aç</ContextMenuItem>
+                  <ContextMenuItem onSelect={() => toggleChannelMute(dm.id)}>
+                    {muted ? <Volume2 size={14} className="text-lime" /> : <VolumeX size={14} className="text-muted" />} {muted ? "Bildirimleri aç" : "Bildirimleri sessize al"}
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => void copyToClipboard(dm.name).then(() => toast.success("DM adı kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Adı kopyala</ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
         </div>
       </div>
       <Dialog open={groupOpen} onOpenChange={setGroupOpen}>

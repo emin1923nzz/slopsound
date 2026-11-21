@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Mic, MicOff, Headphones, HeadphoneOff, Video, VideoOff, Settings2, ChevronUp, Sparkles } from "lucide-react";
+import { Mic, MicOff, Headphones, HeadphoneOff, Video, VideoOff, Settings2, ChevronUp, Sparkles, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { useAudio } from "@/lib/audio";
+import { copyToClipboard } from "@/lib/context-menu";
 import { cn } from "@/lib/utils";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "./ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui";
 import { SpeakingRing } from "./SpeakingRing";
 import { BadgeChips } from "./BadgeChips";
@@ -94,6 +96,7 @@ export function Dock() {
   const toggleCam = useApp((s) => s.toggleCam);
   const toggleDeafen = useApp((s) => s.toggleDeafen);
   const setView = useApp((s) => s.setView);
+  const updateProfile = useApp((s) => s.updateProfile);
   const activeServer = useApp((s) => s.activeServer);
   const selectServer = useApp((s) => s.selectServer);
   const servers = useApp((s) => s.servers);
@@ -107,23 +110,39 @@ export function Dock() {
       <div className="pointer-events-auto relative flex items-center gap-2 rounded-full border border-white/[.09] bg-[#17141f]/90 px-2.5 py-2 shadow-float backdrop-blur-2xl">
         <AnimatePresence>{profileOpen && <ProfilePopover />}</AnimatePresence>
 
-        <button
-          onClick={() => setProfileOpen((v) => !v)}
-          className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition hover:bg-white/[.06]"
-        >
-          <div className="relative">
-            <SlopAvatar name={profile.displayName || profile.name} src={profile.avatarUrl} size={36} status={profile.status} showDot />
-            <SpeakingRing level={micOn ? level : 0} color={profile.color} size={36} />
-          </div>
-          <div className="hidden text-left sm:block">
-            <div className="flex items-center gap-1.5">
-              <p className="max-w-[110px] truncate text-[11.5px] font-extrabold">{profile.displayName || profile.name}</p>
-              <BadgeChips badges={badges} compact />
-            </div>
-            <p className="max-w-[130px] truncate text-[9.5px] text-muted">{statusLabel[profile.status]} • {profile.customStatus}</p>
-          </div>
-          <ChevronUp size={12} className={cn("text-muted transition-transform", profileOpen && "rotate-180")} />
-        </button>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <button
+              onClick={() => setProfileOpen((v) => !v)}
+              className="flex items-center gap-2.5 rounded-full py-1 pl-1 pr-3 transition hover:bg-white/[.06]"
+            >
+              <div className="relative">
+                <SlopAvatar name={profile.displayName || profile.name} src={profile.avatarUrl} size={36} status={profile.status} showDot />
+                <SpeakingRing level={micOn ? level : 0} color={profile.color} size={36} />
+              </div>
+              <div className="hidden text-left sm:block">
+                <div className="flex items-center gap-1.5">
+                  <p className="max-w-[110px] truncate text-[11.5px] font-extrabold">{profile.displayName || profile.name}</p>
+                  <BadgeChips badges={badges} compact />
+                </div>
+                <p className="max-w-[130px] truncate text-[9.5px] text-muted">{statusLabel[profile.status]} • {profile.customStatus}</p>
+              </div>
+              <ChevronUp size={12} className={cn("text-muted transition-transform", profileOpen && "rotate-180")} />
+            </button>
+          </ContextMenuTrigger>
+          <ContextMenuContent side="top" align="start">
+            <ContextMenuItem onSelect={() => void copyToClipboard(profile.displayName || profile.name).then(() => toast.success("Görünen ad kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Görünen adı kopyala</ContextMenuItem>
+            <ContextMenuItem onSelect={() => void copyToClipboard(`@${profile.name}#${profile.tag}`).then(() => toast.success("Kullanıcı adı kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Kullanıcı adını kopyala</ContextMenuItem>
+            <ContextMenuSeparator />
+            {(["online", "idle", "dnd", "offline"] as const).map((status) => (
+              <ContextMenuItem key={status} onSelect={() => void updateProfile({ status }).then((ok) => ok ? toast.success(`Durum: ${statusLabel[status]}`) : toast.error(useApp.getState().error ?? "Durum güncellenemedi"))}>
+                <span className={cn("h-2.5 w-2.5 rounded-full", statusClass[status])} /> {statusLabel[status]}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => setView("settings")}><Settings2 size={14} className="text-muted" /> Profili düzenle</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
 
         <div className="h-7 w-px bg-white/10" />
 
