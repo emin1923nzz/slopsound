@@ -1,1 +1,1 @@
-ALTER TABLE "users" ADD COLUMN "title" text NOT NULL DEFAULT '';--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "title" text DEFAULT '' NOT NULL;

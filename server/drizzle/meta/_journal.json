@@ -22,6 +22,13 @@
       "when": 1795210057947,
       "tag": "0002_google_oauth_badges",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795267264726,
+      "tag": "0003_profile_title",
+      "breakpoints": true
     }
   ]
 }
