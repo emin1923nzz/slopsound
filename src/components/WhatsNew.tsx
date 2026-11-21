@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Sparkles, X } from "lucide-react";
 
-const RELEASE_ID = "slopsound-0.1.3";
+const RELEASE_ID = "slopsound-0.1.4";
 
 const highlights = [
   "Mor, gri ve siyah temelli sade arayüz",
