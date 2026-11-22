@@ -49,7 +49,7 @@ jobs:
             args: --target x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            args: --config src-tauri/release-config.json --target x86_64-pc-windows-msvc
+            args: --config release-config.json --target x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -116,7 +116,7 @@ jobs:
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE_THUMBPRINT) { throw "WINDOWS_CERTIFICATE_THUMBPRINT secret is required" }
-          @{
+          $json = @{
             bundle = @{
               windows = @{
                 certificateThumbprint = $env:WINDOWS_CERTIFICATE_THUMBPRINT
@@ -124,7 +124,8 @@ jobs:
                 timestampUrl = "http://timestamp.digicert.com"
               }
             }
-          } | ConvertTo-Json -Depth 6 | ForEach-Object { [IO.File]::WriteAllText("src-tauri/release-config.json", $_, [Text.UTF8Encoding]::new($false)) }
+          } | ConvertTo-Json -Depth 6
+          [IO.File]::WriteAllBytes("release-config.json", [Text.UTF8Encoding]::new($false).GetBytes($json))
 
       - name: Build and publish ${{ matrix.target }}
         uses: tauri-apps/tauri-action@v1
@@ -162,5 +163,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+
 
 
