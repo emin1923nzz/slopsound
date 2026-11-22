@@ -1,4 +1,4 @@
-name: release
+﻿name: release
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES="v0.1.8: Tarayıcı sağ tık menüsü kaldırıldı; mesaj, input, seçili metin, link, medya, kanal, DM, üye, sunucu ve profil için Discord benzeri özel context menüleri eklendi."
+          NOTES="v0.1.9: Arka plan/bildirim, presence/activity sync, remote control sinyali, updater akışı, 2FA QR, keşfet, entegrasyonlar, tema/dil/tutorial ve stabilite düzeltmeleri."
           gh release create "$GITHUB_REF_NAME" \
             --title "SlopSound $GITHUB_REF_NAME" \
             --notes "$NOTES" \
@@ -162,3 +162,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+
