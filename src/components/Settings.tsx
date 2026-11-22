@@ -3,12 +3,14 @@ import { motion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import {
   User, AtSign, Shield, Bell, Palette, Mic2, Languages, Keyboard, HardDrive, TriangleAlert,
-  Check, Camera, LogOut, Monitor, MonitorUp, Sparkles, ChevronRight, ArrowLeft, Save,
+  Check, Camera, LogOut, Monitor, MonitorUp, Sparkles, ChevronRight, ArrowLeft, Save, Compass,
   Circle, RefreshCw, AppWindow, Radio, Download, Image as ImageIcon, Gamepad2, Music2, Activity, Focus, Link2, Youtube, Boxes, MousePointer2, ShieldCheck,
   Server as ServerIcon, Plus, UserPlus, Hash, Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useApp, type Accent, type NotificationPrefs } from "@/lib/store";
+import { QRCodeSVG } from "qrcode.react";
+import { useApp, type Accent, type Language, type NotificationPrefs, type Theme } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 import { INVITE_BASE_URL } from "@/lib/config";
 import { copyText } from "@/lib/native";
 import { useAudio } from "@/lib/audio";
@@ -28,10 +30,11 @@ import { api } from "@/lib/api";
 type MenuItem = { label: string; icon: React.ElementType; badge?: string; danger?: boolean };
 const menu: { group: string; items: MenuItem[] }[] = [
   { group: "KULLANICI AYARLARI", items: [
-    { label: "Profilim", icon: User }, { label: "Hesap", icon: AtSign }, { label: "Gizlilik", icon: Shield }, { label: "Bildirimler", icon: Bell },
+    { label: "Profilim", icon: User }, { label: "Hesap", icon: AtSign }, { label: "AI Asistan", icon: Sparkles }, { label: "Gizlilik", icon: Shield }, { label: "Bildirimler", icon: Bell },
   ] },
   { group: "SUNUCU", items: [
     { label: "Sunucu Yönetimi", icon: ServerIcon },
+    { label: "Keşfet", icon: Compass },
   ] },
   { group: "UYGULAMA", items: [
     { label: "Görünüm", icon: Palette }, { label: "Ses ve Video", icon: Mic2 }, { label: "Performans", icon: Activity }, { label: "Dil", icon: Languages },
@@ -117,7 +120,7 @@ function isValidUsername(value: string) {
   return /^[a-zA-Z0-9_]{3,32}$/.test(value.trim());
 }
 
-function resizeProfileImage(file: File, width: number, height: number): Promise<string> {
+export function resizeProfileImage(file: File, width: number, height: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const image = new Image();
@@ -397,23 +400,29 @@ function ProfilePanel() {
   );
 }
 
+function maskEmail(email: string) {
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${"•".repeat(Math.max(3, local.length - visible.length))}@${domain}`;
+}
+
 function AccountPanel() {
   const user = useApp((s) => s.user);
+  const refreshBootstrap = useApp((s) => s.refreshBootstrap);
   const [sessions, setSessions] = useState<{ id: string; createdAt: string; expiresAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [twoFa, setTwoFa] = useState<{ secret: string; otpauth: string } | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaBusy, setTwoFaBusy] = useState(false);
 
   async function load() {
     setLoading(true);
-    try {
-      setSessions(await api.sessions());
-    } catch {
-      toast.error("Oturumlar yüklenemedi");
-    } finally {
-      setLoading(false);
-    }
+    try { setSessions(await api.sessions()); }
+    catch { toast.error("Oturumlar yüklenemedi"); }
+    finally { setLoading(false); }
   }
-
   useEffect(() => { void load(); }, []);
 
   async function closeSession(id: string) {
@@ -422,18 +431,78 @@ function AccountPanel() {
       await api.deleteSession(id);
       setSessions((list) => list.filter((x) => x.id !== id));
       toast.success("Oturum kapatıldı");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Oturum kapatılamadı");
-    } finally {
-      setBusyId(null);
-    }
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Oturum kapatılamadı"); }
+    finally { setBusyId(null); }
+  }
+
+  async function setup2fa() {
+    setTwoFaBusy(true);
+    try { setTwoFa(await api.setup2fa()); setTwoFaCode(""); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "2FA başlatılamadı"); }
+    finally { setTwoFaBusy(false); }
+  }
+  async function enable2fa() {
+    if (!twoFaCode.trim()) return;
+    setTwoFaBusy(true);
+    try {
+      await api.enable2fa(twoFaCode.trim());
+      setTwoFa(null); setTwoFaCode("");
+      await refreshBootstrap();
+      toast.success("2FA etkinleştirildi");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Kod doğrulanamadı"); }
+    finally { setTwoFaBusy(false); }
+  }
+  async function disable2fa() {
+    if (!twoFaCode.trim()) return;
+    setTwoFaBusy(true);
+    try {
+      await api.disable2fa(twoFaCode.trim());
+      setTwoFa(null); setTwoFaCode("");
+      await refreshBootstrap();
+      toast.success("2FA kapatıldı");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "2FA kapatılamadı"); }
+    finally { setTwoFaBusy(false); }
   }
 
   return (
     <Panel title="Hesap" description="E-posta, şifre ve oturum yönetimi.">
       <Card>
-        <Row icon={AtSign} title="E-posta" description={user?.email || "—"}><span /></Row>
-        <Row icon={Shield} title="İki faktörlü doğrulama" description="Hesabını ekstra güvenlik katmanıyla koru."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
+        <Row icon={AtSign} title="E-posta" description={user?.email ? maskEmail(user.email) : "—"}><span /></Row>
+        <div className="border-t border-white/[.06] pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[12.5px] font-bold">İki faktörlü doğrulama</p>
+              <p className="mt-0.5 text-[11px] text-muted">Doğrulayıcı uygulamanla QR kodu tara ve kodu gir.</p>
+            </div>
+            <Badge className={user?.totpEnabled ? "border-lime/30 bg-lime/10 text-lime" : "border-white/10 bg-white/[.04] text-muted"}>
+              {user?.totpEnabled ? "Aktif" : "Kapalı"}
+            </Badge>
+          </div>
+          {!user?.totpEnabled && !twoFa && (
+            <div className="mt-3"><Button variant="outline" size="sm" disabled={twoFaBusy} onClick={() => void setup2fa()}>QR Oluştur</Button></div>
+          )}
+          {twoFa && !user?.totpEnabled && (
+            <div className="mt-4 space-y-3 rounded-2xl border border-brand/20 bg-brand/[.05] p-4">
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start">
+                <div className="rounded-xl bg-white p-2"><QRCodeSVG value={twoFa.otpauth} size={140} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-muted">QR okuyamazsan bu anahtarı elle gir:</p>
+                  <code className="mt-1 block break-all rounded-lg bg-black/20 px-2 py-1 text-[10px] text-paper">{twoFa.secret}</code>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Input value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="6 haneli kod" inputMode="numeric" className="max-w-[180px]" />
+                <Button size="sm" disabled={twoFaBusy || twoFaCode.trim().length < 6} onClick={() => void enable2fa()}>Doğrula ve Aç</Button>
+              </div>
+            </div>
+          )}
+          {user?.totpEnabled && (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Input value={twoFaCode} onChange={(e) => setTwoFaCode(e.target.value)} placeholder="Kapatmak için kod" inputMode="numeric" className="max-w-[180px]" />
+              <Button variant="danger" size="sm" disabled={twoFaBusy || twoFaCode.trim().length < 6} onClick={() => void disable2fa()}>2FA Kapat</Button>
+            </div>
+          )}
+        </div>
       </Card>
       <Card>
         <div className="flex items-center justify-between gap-2">
@@ -444,11 +513,9 @@ function AccountPanel() {
           <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={13} /> Yenile</Button>
         </div>
         <div className="mt-4 space-y-2">
-          {loading ? (
-            <p className="text-[11px] text-muted">Yükleniyor...</p>
-          ) : sessions.length === 0 ? (
-            <p className="text-[11px] text-muted">Açık oturum bulunamadı.</p>
-          ) : sessions.map((session) => (
+          {loading ? <p className="text-[11px] text-muted">Yükleniyor...</p>
+          : sessions.length === 0 ? <p className="text-[11px] text-muted">Açık oturum bulunamadı.</p>
+          : sessions.map((session) => (
             <div key={session.id} className="flex items-center gap-3 rounded-card bg-white/[.04] p-3">
               <Monitor size={17} className="text-muted" />
               <div className="min-w-0 flex-1">
@@ -490,6 +557,7 @@ function NotificationPanel() {
         <ToggleRow icon={AtSign} title="Etiketlenme (@) bildirimleri" description="Biri seni etiketleyince." checked={prefs.mention} onCheckedChange={(mention) => patch({ mention })} />
         <ToggleRow icon={User} title="Sunucu bildirimleri" description="Tüm sunuculardan bildirim al." checked={prefs.server} onCheckedChange={(server) => patch({ server })} />
         <ToggleRow icon={Bell} title="Ses" description="Bildirim sesi çalsın." checked={prefs.sound} onCheckedChange={(sound) => patch({ sound })} />
+        <ToggleRow icon={Monitor} title="Masaüstü bildirimi" description="Uygulama odakta değilken sistem bildirimi göster." checked={prefs.desktop} onCheckedChange={(desktop) => patch({ desktop })} />
       </Card>
       <Card>
         <SectionTitle>Rahatsız etme saatleri</SectionTitle>
@@ -498,7 +566,10 @@ function NotificationPanel() {
       </Card>
       <Card>
         <Row icon={Bell} title="Test bildirimi" description="Masaüstü bildirim sistemini doğrula.">
-          <Button variant="outline" size="sm" onClick={() => { void notify("SlopSound", "Bildirim ayarları çalışıyor.").then(() => toast.success("Test bildirimi gönderildi")); }}>Gönder</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { void notify("SlopSound", "Bildirim ayarları çalışıyor.").then(() => toast.success("Test bildirimi gönderildi")); }}>Gönder</Button>
+            <Button variant="ghost" size="sm" onClick={() => { toast.success("Uygulama içi bildirim örneği"); useAudio.getState().playSound("mention"); }}>Uygulama içi</Button>
+          </div>
         </Row>
       </Card>
     </Panel>
@@ -506,6 +577,7 @@ function NotificationPanel() {
 }
 
 function AppearancePanel() {
+  const restartTutorial = useApp((s) => s.restartTutorial);
   const accent = useApp((s) => s.accent);
   const setAccent = useApp((s) => s.setAccent);
   const density = useApp((s) => s.density);
@@ -516,7 +588,15 @@ function AppearancePanel() {
   const toggleFocusMode = useApp((s) => s.toggleFocusMode);
   const uiScale = useApp((s) => s.uiScale);
   const setUiScale = useApp((s) => s.setUiScale);
-  const [theme, setTheme] = useState("Koyu + Mor");
+  const theme = useApp((s) => s.theme);
+  const setTheme = useApp((s) => s.setTheme);
+  const t = useT();
+  const themes: { id: Theme; label: string; swatch: string }[] = [
+    { id: "dark-violet", label: "Koyu + Mor", swatch: "linear-gradient(135deg,#17141f,#8B6CFF)" },
+    { id: "light", label: "Açık", swatch: "linear-gradient(135deg,#f7f5ff,#d9d2ff)" },
+    { id: "yellow-black", label: "Sarı Siyah", swatch: "linear-gradient(135deg,#0d0c05,#ffd60a)" },
+    { id: "system", label: "Sisteme Uysun", swatch: "linear-gradient(135deg,#17141f 50%,#f7f5ff 50%)" },
+  ];
   const fontSizes = [
     { label: "Küçük", value: 0.85 },
     { label: "Normal", value: 1 },
@@ -526,10 +606,24 @@ function AppearancePanel() {
   return (
     <Panel title="Görünüm" description="SlopSound sana nasıl görünsün.">
       <Card>
-        <SectionTitle>Tema</SectionTitle>
-        <div className="mt-3"><Chips options={["Koyu + Mor", "Açık", "Sarı Siyah", "Sisteme Uysun"]} value={theme} onChange={(v) => { setTheme(v); toast(`Tema: ${v}`); }} /></div>
+        <SectionTitle>{t("Tema")}</SectionTitle>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {themes.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => { setTheme(item.id); toast(`${t("Tema")}: ${t(item.label)}`); }}
+              className={cn(
+                "rounded-2xl border p-2 text-left backdrop-blur-xl transition",
+                theme === item.id ? "border-brand/50 bg-brand/10 shadow-[inset_0_0_0_1px_hsl(var(--brand)/.25)]" : "border-white/[.08] bg-white/[.03] hover:border-brand/30 hover:bg-white/[.06]",
+              )}
+            >
+              <span className="block h-10 rounded-xl border border-white/10" style={{ background: item.swatch }} />
+              <span className="mt-2 block truncate text-[10.5px] font-bold">{t(item.label)}</span>
+            </button>
+          ))}
+        </div>
         <p className="mt-2 text-[10.5px] text-muted">RGB yok, sade. Renkleri aşağıdan özelleştirebilirsin.</p>
-        <SectionTitle className="!mt-6">Vurgu rengi</SectionTitle>
+        <SectionTitle className="!mt-6">{t("Vurgu rengi")}</SectionTitle>
         <div className="mt-3 flex flex-wrap gap-3">
           {accents.map((a) => (
             <button key={a.id} onClick={() => setAccent(a.id)} className={cn("flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-bold transition", accent === a.id ? "border-paper/40 bg-white/[.08]" : "border-white/[.08] text-muted hover:bg-white/[.05]")}>
@@ -539,12 +633,15 @@ function AppearancePanel() {
         </div>
       </Card>
       <Card>
-        <SectionTitle>Yazı boyutu</SectionTitle>
+        <SectionTitle>{t("Arayüz ölçeği")}</SectionTitle>
         <div className="mt-3"><Chips options={fontSizes.map((size) => size.label)} value={fontSizes.find((size) => size.value === uiScale)?.label ?? "Normal"} onChange={(label) => { const next = fontSizes.find((size) => size.label === label); if (next) setUiScale(next.value); }} /></div>
         <div className="mt-5">
-          <ToggleRow icon={Palette} title="Kompakt mod" description="Mesajlar daha sıkı görünür, daha çok mesaj sığar." checked={density === "compact"} onCheckedChange={(v) => setDensity(v ? "compact" : "comfortable")} />
-          <ToggleRow icon={Palette} title="Hareketleri azalt" description="Animasyonları kapat, daha hızlı hissettir." checked={reduceMotion} onCheckedChange={setReduceMotion} />
-          <ToggleRow icon={Focus} title="Odak modu" description="Okunmayan rozetlerini gizler, dikkatini dağıtmaz." checked={focusMode} onCheckedChange={toggleFocusMode} />
+          <ToggleRow icon={Palette} title={t("Yoğunluk")} description="Mesajlar daha sıkı görünür, daha çok mesaj sığar." checked={density === "compact"} onCheckedChange={(v) => setDensity(v ? "compact" : "comfortable")} />
+          <ToggleRow icon={Palette} title={t("Hareketi azalt")} description="Animasyonları kapat, daha hızlı hissettir." checked={reduceMotion} onCheckedChange={setReduceMotion} />
+          <ToggleRow icon={Focus} title={t("Odak modu")} description="Okunmayan rozetlerini gizler, dikkatini dağıtmaz." checked={focusMode} onCheckedChange={toggleFocusMode} />
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button variant="outline" size="sm" onClick={restartTutorial}>{t("Tekrar göster")}</Button>
         </div>
       </Card>
     </Panel>
@@ -765,14 +862,38 @@ function AudioPanel() {
 }
 
 function LanguagePanel() {
-  const [lang, setLang] = useState("Türkçe");
-  const [translate, setTranslate] = useState(false);
+  const language = useApp((s) => s.language);
+  const setLanguage = useApp((s) => s.setLanguage);
+  const autoTranslate = useApp((s) => s.autoTranslate);
+  const setAutoTranslate = useApp((s) => s.setAutoTranslate);
+  const t = useT();
+  const languages: { id: Language; label: string }[] = [
+    { id: "tr", label: "Türkçe" }, { id: "en", label: "English" }, { id: "de", label: "Deutsch" }, { id: "fr", label: "Français" },
+  ];
+  const current = languages.find((item) => item.id === language) ?? languages[0];
   return (
-    <Panel title="Dil" description="SlopSound hangi dilde konuşsun.">
+    <Panel title={t("Dil")} description="SlopSound hangi dilde konuşsun.">
       <Card>
-        <SectionTitle>Uygulama dili</SectionTitle>
-        <div className="mt-3"><Chips options={["Türkçe", "English", "Deutsch", "Français"]} value={lang} onChange={setLang} /></div>
-        <div className="mt-4"><ToggleRow icon={Languages} title="Otomatik çeviri" description="Yabancı mesajları otomatik çevir." checked={translate} onCheckedChange={setTranslate} /></div>
+        <SectionTitle>{t("Uygulama dili")}</SectionTitle>
+        <div className="mt-3">
+          <Chips
+            options={languages.map((item) => t(item.label))}
+            value={t(current.label)}
+            onChange={(label) => {
+              const next = languages.find((item) => t(item.label) === label);
+              if (next) setLanguage(next.id);
+            }}
+          />
+        </div>
+        <div className="mt-4">
+          <ToggleRow
+            icon={Languages}
+            title={t("Otomatik çeviri")}
+            description={t("Gelen mesajları seçtiğin dile çevirir.")}
+            checked={autoTranslate}
+            onCheckedChange={setAutoTranslate}
+          />
+        </div>
       </Card>
     </Panel>
   );
@@ -829,7 +950,10 @@ function ShortcutsPanel() {
         <Row icon={Bell} title="Test bildirimi" description="Tauri Notification ile masaüstü bildirimi gönder.">
           <Button variant="outline" size="sm" onClick={() => void notify("SlopSound", "Bildirim sistemi çalışıyor.")}>Gönder</Button>
         </Row>
-        <p className="mt-2 text-[9.5px] text-muted/70">Sistem tepsesi simgesi, pencere yönetimi ve updater zaten native katmanda aktif.</p>
+        <Row icon={Download} title="Güncellemeleri denetle" description="Yeni sürüm varsa indirir ve yeniden başlatır.">
+          <Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("slopsound:check-update"))}>Denetle</Button>
+        </Row>
+        <p className="mt-2 text-[9.5px] text-muted/70">Sistem tepsisi, pencere yönetimi ve otomatik güncelleme aktif.</p>
       </Card>
     </Panel>
   );
@@ -847,21 +971,42 @@ function StoragePanel() {
 }
 
 function DangerPanel() {
+  const logout = useApp((s) => s.logout);
+  const [confirmDisable, setConfirmDisable] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState("");
   async function logoutOthers() {
     try {
       const result = await api.deleteAllSessions();
       toast.success(`${result.removed} oturum kapatıldı`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Oturumlar kapatılamadı");
-    }
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Oturumlar kapatılamadı"); }
+  }
+  async function disableAccount() {
+    if (confirmDisable !== "DEVRE DISI") { toast.error('Onay için "DEVRE DISI" yaz'); return; }
+    try { await api.disableAccount(); toast.success("Hesap devre dışı bırakıldı"); await logout(); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "İşlem başarısız"); }
+  }
+  async function deleteAccount() {
+    if (confirmDelete !== "SIL") { toast.error('Onay için "SIL" yaz'); return; }
+    try { await api.deleteAccount(); toast.success("Hesap silindi"); await logout(); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "İşlem başarısız"); }
   }
 
   return (
     <Panel title="Tehlikeli Bölge" description="Dikkat, bunlar geri alınamaz.">
       <Card className="border-danger/20">
-        <Row icon={LogOut} title="Hesabı devre dışı bırak" description="Bu işlem şu anda kullanılamıyor."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
-        <Row icon={TriangleAlert} title="Hesabı kalıcı olarak sil" description="Bu işlem şu anda kullanılamıyor."><Badge className="border-white/10 bg-white/[.04] text-muted">Yakında</Badge></Row>
-        <Row icon={LogOut} title="Diğer cihazlardan çıkış yap" description="Bu cihazdaki oturum açık kalır, diğer oturumlar kapatılır."><Button variant="danger" size="sm" onClick={() => void logoutOthers()}>Diğer Oturumları Kapat</Button></Row>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-danger/20 bg-danger/[.04] p-4">
+            <p className="text-[12.5px] font-bold text-danger">Hesabı devre dışı bırak</p>
+            <p className="mt-1 text-[11px] text-muted">Hesabın kapatılır, oturumların sonlandırılır. Onay için <b>DEVRE DISI</b> yaz.</p>
+            <div className="mt-3 flex gap-2"><Input value={confirmDisable} onChange={(e) => setConfirmDisable(e.target.value)} placeholder="DEVRE DISI" className="max-w-[180px]" /><Button variant="danger" size="sm" onClick={() => void disableAccount()}>Devre Dışı Bırak</Button></div>
+          </div>
+          <div className="rounded-2xl border border-danger/20 bg-danger/[.04] p-4">
+            <p className="text-[12.5px] font-bold text-danger">Hesabı kalıcı olarak sil</p>
+            <p className="mt-1 text-[11px] text-muted">Hesap ve ilişkili veriler silinir. Onay için <b>SIL</b> yaz.</p>
+            <div className="mt-3 flex gap-2"><Input value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} placeholder="SIL" className="max-w-[180px]" /><Button variant="danger" size="sm" onClick={() => void deleteAccount()}>Kalıcı Sil</Button></div>
+          </div>
+          <Row icon={LogOut} title="Diğer cihazlardan çıkış yap" description="Bu cihazdaki oturum açık kalır, diğer oturumlar kapatılır."><Button variant="danger" size="sm" onClick={() => void logoutOthers()}>Diğer Oturumları Kapat</Button></Row>
+        </div>
       </Card>
     </Panel>
   );
@@ -915,45 +1060,59 @@ function PerformancePanel() {
 }
 
 const integrations = [
-  { id: "youtube", label: "YouTube", icon: Youtube, hint: "Kanalını veya oynatma listeni profiline bağla." },
-  { id: "spotify", label: "Spotify", icon: Music2, hint: "Şu an dinlediğin parçayı durum olarak göster." },
-  { id: "apple-music", label: "Apple Music", icon: Music2, hint: "Apple Music kitaplığını profiline ekle." },
-  { id: "steam", label: "Steam", icon: Gamepad2, hint: "Oynadığın oyunları Rich Presence olarak paylaş." },
-  { id: "roblox", label: "Roblox", icon: Boxes, hint: "Roblox profilini ve oyun durumunu bağla." },
+  { id: "youtube", label: "YouTube", icon: Youtube, hint: "Kanalını veya oynatma listeni profiline bağla.", prefix: "YouTube'da" },
+  { id: "spotify", label: "Spotify", icon: Music2, hint: "Dinlediğin müziği profil durumuna yansıt.", prefix: "Spotify'da dinliyor" },
+  { id: "apple-music", label: "Apple Music", icon: Music2, hint: "Apple Music profilini bağla.", prefix: "Apple Music'te dinliyor" },
+  { id: "steam", label: "Steam", icon: Gamepad2, hint: "Oynadığın oyunu profil durumuna yansıt.", prefix: "Steam'de oynuyor" },
+  { id: "roblox", label: "Roblox", icon: Boxes, hint: "Roblox profilini ve oyun durumunu bağla.", prefix: "Roblox'ta oynuyor" },
 ];
 
 function IntegrationsPanel() {
-  const [links, setLinks] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem("slopsound-integrations") ?? "{}") as Record<string, string>; }
-    catch { return {}; }
+  const user = useApp((s) => s.user);
+  const updateProfile = useApp((s) => s.updateProfile);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({
+    youtube: user?.youtubeUrl ?? "", spotify: user?.spotifyUrl ?? "", "apple-music": user?.appleMusicUrl ?? "", steam: user?.steamUrl ?? "", roblox: user?.robloxUrl ?? "",
   });
-  const [draft, setDraft] = useState<Record<string, string>>(links);
+  useEffect(() => {
+    setDraft({ youtube: user?.youtubeUrl ?? "", spotify: user?.spotifyUrl ?? "", "apple-music": user?.appleMusicUrl ?? "", steam: user?.steamUrl ?? "", roblox: user?.robloxUrl ?? "" });
+  }, [user?.youtubeUrl, user?.spotifyUrl, user?.appleMusicUrl, user?.steamUrl, user?.robloxUrl]);
 
-  function save(id: string, label: string) {
-    const next = { ...links, [id]: draft[id] ?? "" };
-    setLinks(next);
-    localStorage.setItem("slopsound-integrations", JSON.stringify(next));
-    toast.success(`${label} bağlantısı kaydedildi`);
+  async function save(id: string, label: string, prefix: string) {
+    const value = (draft[id] ?? "").trim();
+    if (value && !/^https?:\/\//i.test(value)) { toast.error("Geçerli bir bağlantı gir"); return; }
+    setBusy(id);
+    const patch: Record<string, string> = {
+      youtube: "youtubeUrl", spotify: "spotifyUrl", "apple-music": "appleMusicUrl", steam: "steamUrl", roblox: "robloxUrl",
+    };
+    const payload: Record<string, string> = { [patch[id]]: value };
+    if (value) payload.activity = `${prefix}: ${label}`;
+    const ok = await updateProfile(payload as any);
+    setBusy(null);
+    if (ok) toast.success(value ? `${label} bağlandı` : `${label} bağlantısı kaldırıldı`);
   }
 
   return (
-    <Panel title="Entegrasyonlar" description="Dış servisleri profiline bağla. Bağlantılar bu cihazda saklanır.">
+    <Panel title="Entegrasyonlar" description="Profil bağlantılarını kaydet. Bağladığında durumun profilinde görünür.">
       <Card>
-        <p className="text-[11px] leading-relaxed text-muted">OAuth sunucu anahtarları eklendiğinde bu alan otomatik olarak gerçek hesap bağlantısına geçecek. Şimdilik profil bağlantını kaydedebilirsin.</p>
-        <div className="mt-4 space-y-1">
-          {integrations.map(({ id, label, icon: Icon, hint }) => (
-            <div key={id} className="flex flex-col gap-2 border-b border-white/[.06] py-4 last:border-0 sm:flex-row sm:items-center">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] bg-brand/12 text-brand"><Icon size={16} /></div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12.5px] font-bold">{label} {links[id] && <span className="ml-1 rounded-full bg-lime/15 px-1.5 py-0.5 text-[8px] font-black text-lime">BAĞLI</span>}</p>
-                <p className="mt-0.5 text-[11px] text-muted">{hint}</p>
+        <div className="space-y-1">
+          {integrations.map(({ id, label, icon: Icon, hint, prefix }) => {
+            const value = draft[id] ?? "";
+            const connected = Boolean((user as any)?.[id === "apple-music" ? "appleMusicUrl" : `${id}Url`]);
+            return (
+              <div key={id} className="flex flex-col gap-2 border-b border-white/[.06] py-4 last:border-0 sm:flex-row sm:items-center">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] bg-brand/12 text-brand"><Icon size={16} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] font-bold">{label} {connected && <span className="ml-1 rounded-full bg-lime/15 px-1.5 py-0.5 text-[8px] font-black text-lime">BAĞLI</span>}</p>
+                  <p className="mt-0.5 text-[11px] text-muted">{hint}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Input aria-label={`${label} profil bağlantısı`} value={value} onChange={(e) => setDraft((current) => ({ ...current, [id]: e.target.value }))} placeholder="https://..." className="w-full sm:w-[220px]" />
+                  <Button variant="outline" size="sm" disabled={busy === id} onClick={() => void save(id, label, prefix)}>{busy === id ? "..." : "Kaydet"}</Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Input aria-label={`${label} profil bağlantısı`} value={draft[id] ?? ""} onChange={(e) => setDraft((current) => ({ ...current, [id]: e.target.value }))} placeholder="Profil bağlantısı" className="w-full sm:w-[220px]" />
-                <Button variant="outline" size="sm" onClick={() => save(id, label)}>Bağla</Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     </Panel>
@@ -961,31 +1120,75 @@ function IntegrationsPanel() {
 }
 
 function RemoteControlPanel() {
-  const [enabled, setEnabled] = useState(false);
-  const [keyboard, setKeyboard] = useState(true);
-  const [mouse, setMouse] = useState(true);
-  const [adminsOnly, setAdminsOnly] = useState(true);
-  const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
+  const remote = useApp((s) => s.remoteControl);
+  const setRemote = useApp((s) => s.setRemoteControl);
+  const live = useLiveKit((s) => s.remoteControl);
+
+  function copyCode() { void navigator.clipboard?.writeText(remote.code); toast.success("Kod kopyalandı"); }
+  function regenerate() { setRemote({ code: Math.random().toString(36).slice(2, 8).toUpperCase() }); toast.success("Yeni kod oluşturuldu"); }
 
   return (
-    <Panel title="Uzaktan Kontrol" description="Ekran paylaşımı sırasında katılımcıların cihazını kontrol etmesine izin ver.">
+    <Panel title="Uzaktan Kontrol" description="Ekran paylaşımı sırasında kontrol izni. Gerçek kontrol sinyali LiveKit veri kanalıyla gönderilir.">
       <Card>
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-brand/20 bg-brand/[.07] p-4">
           <div className="grid h-10 w-10 place-items-center rounded-2xl bg-brand/15 text-brand"><MousePointer2 size={18} /></div>
           <div className="min-w-0 flex-1">
             <p className="text-[12.5px] font-extrabold">Oturum kodu</p>
-            <p className="mt-0.5 text-[11px] text-muted">Katılımcılar bu kodla kontrol isteği gönderir.</p>
+            <p className="mt-0.5 text-[11px] text-muted">Bu kod cihazını tanımlar. Aktif paylaşımda “Kontrol iste” butonu kullanılır.</p>
           </div>
-          <code className="rounded-xl bg-black/30 px-3 py-2 font-display text-[15px] font-black tracking-[.2em] text-brand">{code}</code>
-          <Button variant="outline" size="sm" onClick={() => { void navigator.clipboard?.writeText(code); toast.success("Kod kopyalandı"); }}>Kopyala</Button>
+          <code className="rounded-xl bg-black/30 px-3 py-2 font-display text-[15px] font-black tracking-[.2em] text-brand">{remote.code}</code>
+          <Button variant="outline" size="sm" onClick={copyCode}>Kopyala</Button>
+          <Button variant="ghost" size="sm" onClick={regenerate}>Yenile</Button>
         </div>
         <div className="mt-4 space-y-1">
-          <ToggleRow icon={MousePointer2} title="Uzaktan kontrolü etkinleştir" description="Deneysel: yalnızca ekran paylaşırken çalışır." checked={enabled} onCheckedChange={setEnabled} />
-          <ToggleRow icon={Keyboard} title="Klavye girişine izin ver" description="Katılımcılar klavye olaylarını iletebilir." checked={keyboard} onCheckedChange={setKeyboard} />
-          <ToggleRow icon={MousePointer2} title="Fare girişine izin ver" description="İmleç hareketi ve tıklamalar iletilebilir." checked={mouse} onCheckedChange={setMouse} />
-          <ToggleRow icon={ShieldCheck} title="Sadece yöneticiler" description="Kontrol yetkisini sunucu yöneticileriyle sınırla." checked={adminsOnly} onCheckedChange={setAdminsOnly} />
+          <ToggleRow icon={MousePointer2} title="Uzaktan kontrolü etkinleştir" description="Ekran paylaşırken kontrol isteklerini kabul et." checked={remote.enabled} onCheckedChange={(v) => setRemote({ enabled: v })} />
+          <ToggleRow icon={Keyboard} title="Klavye girişine izin ver" description="Katılımcılar klavye olaylarını iletebilir." checked={remote.keyboard} onCheckedChange={(v) => setRemote({ keyboard: v })} />
+          <ToggleRow icon={MousePointer2} title="Fare girişine izin ver" description="İmleç hareketi ve tıklamalar iletilebilir." checked={remote.mouse} onCheckedChange={(v) => setRemote({ mouse: v })} />
+          <ToggleRow icon={ShieldCheck} title="Sadece yöneticiler" description="Kontrol yetkisini sunucu yöneticileriyle sınırla." checked={remote.adminsOnly} onCheckedChange={(v) => setRemote({ adminsOnly: v })} />
         </div>
-        {!enabled && <p className="mt-4 text-[10.5px] text-muted">Kontrol kapalı. Açtığında oturum kodu geçerli olur.</p>}
+        <p className="mt-3 text-[10.5px] text-muted">Canlı durum: {live.active ? `Aktif (${live.controllerName ?? "kontrolcü"})` : "Beklemede"}. OS seviyesinde fare/klavye enjeksiyonu için ek native agent gerekir.</p>
+      </Card>
+    </Panel>
+  );
+}
+
+function DiscoverPanel() {
+  const [servers, setServers] = useState<Array<{ id: string; name: string; color: string; iconUrl: string; memberCount: number; joined: boolean }>>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const refreshBootstrap = useApp((s) => s.refreshBootstrap);
+  const selectServer = useApp((s) => s.selectServer);
+  useEffect(() => { void api.discoverServers().then(setServers).catch(() => setServers([])); }, []);
+  async function join(id: string) {
+    setBusy(id);
+    try {
+      await api.joinDiscoverServer(id);
+      setServers((current) => current.map((s) => s.id === id ? { ...s, joined: true } : s));
+      await refreshBootstrap();
+      selectServer(id);
+      toast.success("Sunucuya katıldın");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Katılamadın"); }
+    finally { setBusy(null); }
+  }
+  return (
+    <Panel title="Keşfet" description="Popüler ve herkese açık sunucuları bul.">
+      <Card>
+        <div className="space-y-2">
+          {servers.length === 0 && <p className="text-[11px] text-muted">Şu an herkese açık sunucu yok.</p>}
+          {servers.map((server) => (
+            <div key={server.id} className="flex items-center gap-3 rounded-2xl border border-white/[.06] bg-white/[.03] p-3">
+              <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-2xl text-[13px] font-black text-white" style={{ background: server.color }}>
+                {server.iconUrl ? <img src={server.iconUrl} alt="" className="h-full w-full object-cover" /> : server.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[12.5px] font-bold">{server.name}</p>
+                <p className="text-[10.5px] text-muted">{server.memberCount} üye</p>
+              </div>
+              <Button size="sm" variant={server.joined ? "outline" : "primary"} disabled={server.joined || busy === server.id} onClick={() => void join(server.id)}>
+                {server.joined ? "Katıldın" : busy === server.id ? "..." : "Katıl"}
+              </Button>
+            </div>
+          ))}
+        </div>
       </Card>
     </Panel>
   );
@@ -1042,7 +1245,14 @@ function ServerManagementPanel() {
         <SectionTitle>Seçili sunucu</SectionTitle>
         <p className="mt-2 font-display text-[18px] font-extrabold">{server?.name ?? "Sunucu seçilmedi"}</p>
         <p className="mt-1 text-[11px] text-muted">{members.length} üye • {visibleGroups.reduce((sum, item) => sum + item.channels.length, 0)} kanal</p>
-        <Button className="mt-4" onClick={() => void invite()}><UserPlus size={14} /> Davet linki oluştur ve kopyala</Button>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={() => void invite()}><UserPlus size={14} /> Davet linki oluştur ve kopyala</Button>
+          <Button variant="outline" onClick={async () => {
+            if (!activeServer) return;
+            try { await api.updateServer(activeServer, { isPublic: true }); toast.success("Sunucu Keşfet'te görünür"); }
+            catch (error) { toast.error(error instanceof Error ? error.message : "Güncellenemedi"); }
+          }}>Keşfet'te Yayınla</Button>
+        </div>
       </Card>
       <Card>
         <SectionTitle>Yeni kanal veya ses odası</SectionTitle>
@@ -1089,9 +1299,84 @@ function ServerManagementPanel() {
   );
 }
 
+function AIPanel() {
+  const t = useT();
+  const [key, setKey] = useState("");
+  const [status, setStatus] = useState<{ configured: boolean; custom: boolean; model: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [testQuestion, setTestQuestion] = useState("SlopSound'u anlat");
+  const [answer, setAnswer] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.aiStatus()
+      .then((data) => { if (active) setStatus(data); })
+      .catch(() => { if (active) setStatus({ configured: false, custom: false, model: "—" }); });
+    return () => { active = false; };
+  }, []);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await api.setAiKey(key.trim() || null);
+      setStatus((current) => ({ configured: result.configured, custom: Boolean(key.trim()), model: current?.model ?? "—" }));
+      setKey("");
+      setAnswer("");
+      toast.success(result.configured ? "Groq anahtarı kaydedildi" : "Groq anahtarı kaldırıldı");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Anahtar kaydedilemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function test() {
+    if (busy || !testQuestion.trim()) return;
+    setBusy(true);
+    try {
+      const result = await api.askAi(testQuestion.trim());
+      setAnswer(result.answer);
+      toast.success(result.source === "groq" ? "Groq ile cevap verdi" : "Yerel cevap kullanıldı");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soru gönderilemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title={t("AI Asistan")} description="Sloppi'ye kendi Groq anahtarınla gerçek cevaplar verdir.">
+      <Card>
+        <SectionTitle>{t("Groq API anahtarı")}</SectionTitle>
+        <p className="mt-1 text-[11px] text-muted">Anahtar sunucuda saklanır, arayüzde bir daha gösterilmez. Boş bırakıp kaydedersen kaldırılır.</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input type="password" autoComplete="off" value={key} onChange={(event) => setKey(event.target.value)} placeholder="gsk_..." aria-label="Groq API anahtarı" className="min-w-0 flex-1" />
+          <Button onClick={() => void save()} disabled={busy}><Save size={13} /> {t("Kaydet")}</Button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Badge className={status?.configured ? "border-lime/30 bg-lime/10 text-lime" : "border-white/10 bg-white/[.04] text-muted"}>
+            {status?.configured ? t("Aktif") : t("Anahtar yok")}
+          </Badge>
+          {status?.custom && <Badge className="border-brand/30 bg-brand/10 text-brand">{t("Kişisel anahtar")}</Badge>}
+          <span className="text-[10px] text-muted">{t("Model")}: {status?.model ?? "—"}</span>
+        </div>
+      </Card>
+      <Card>
+        <SectionTitle>{t("Cevabı dene")}</SectionTitle>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <Input value={testQuestion} onChange={(event) => setTestQuestion(event.target.value)} placeholder={t("Bir soru sor")} aria-label="AI test sorusu" className="min-w-0 flex-1" />
+          <Button variant="outline" onClick={() => void test()} disabled={busy || !testQuestion.trim()}>{t("Sor")}</Button>
+        </div>
+        {answer && <p className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-white/[.04] p-3 text-[12px] leading-relaxed text-paper/85">{answer}</p>}
+      </Card>
+    </Panel>
+  );
+}
+
 const panels: Record<string, React.ComponentType> = {
-  "Profilim": ProfilePanel, "Hesap": AccountPanel, "Gizlilik": PrivacyPanel, "Bildirimler": NotificationPanel,
-  "Sunucu Yönetimi": ServerManagementPanel,
+  "Profilim": ProfilePanel, "Hesap": AccountPanel, "AI Asistan": AIPanel, "Gizlilik": PrivacyPanel, "Bildirimler": NotificationPanel,
+  "Sunucu Yönetimi": ServerManagementPanel, "Keşfet": DiscoverPanel,
   "Görünüm": AppearancePanel, "Ses ve Video": AudioPanel, "Performans": PerformancePanel, "Dil": LanguagePanel,
   "Entegrasyonlar": IntegrationsPanel, "Uzaktan Kontrol": RemoteControlPanel, "Klavye Kısayolları": ShortcutsPanel, "Depolama": StoragePanel, "Tehlikeli Bölge": DangerPanel,
 };
@@ -1100,15 +1385,16 @@ export function Settings() {
   const section = useApp((s) => s.settingsSection);
   const setSection = useApp((s) => s.setSettingsSection);
   const setView = useApp((s) => s.setView);
+  const t = useT();
   const Active = panels[section] ?? ProfilePanel;
 
   return (
     <div className="relative z-10 flex h-full flex-col overflow-hidden">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/[.06] px-4">
         <button onClick={() => setView("app")} className="icon-btn"><ArrowLeft size={16} /></button>
-        <span className="font-display text-[13px] font-extrabold">Ayarlar</span>
+        <span className="font-display text-[13px] font-extrabold">{t("Ayarlar")}</span>
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden text-[10.5px] text-muted sm:inline">Değişiklikler anında kaydedilir</span>
+          <span className="hidden text-[10.5px] text-muted sm:inline">{t("Değişiklikler anında kaydedilir")}</span>
         </div>
       </div>
       <div className="no-scrollbar flex-1 overflow-y-auto">
@@ -1116,7 +1402,7 @@ export function Settings() {
           <nav className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto md:w-[220px] md:flex-col md:overflow-visible">
             {menu.map((group) => (
               <div key={group.group}>
-                <p className="category-label !mt-4 !px-3 md:!mt-0">{group.group}</p>
+                <p className="category-label !mt-4 !px-3 md:!mt-0">{t(group.group)}</p>
                 <div className="mt-1 flex gap-1 md:flex-col">
                   {group.items.map((item) => (
                     <button
@@ -1129,7 +1415,7 @@ export function Settings() {
                       )}
                     >
                       <item.icon size={15} className={section === item.label ? "text-brand" : ""} />
-                      <span className="whitespace-nowrap">{item.label}</span>
+                      <span className="whitespace-nowrap">{t(item.label)}</span>
                       {item.badge && <span className="ml-auto grid h-[17px] min-w-[17px] place-items-center rounded-full bg-danger px-1 text-[9px] font-black text-white">{item.badge}</span>}
                       <ChevronRight size={12} className="ml-auto md:hidden" />
                     </button>

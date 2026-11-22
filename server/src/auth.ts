@@ -11,6 +11,12 @@ import { userBadges, type BadgeId } from "./badges.js";
 export const SESSION_COOKIE = "slopsound_session";
 const SESSION_TTL = 60 * 60 * 24 * 7;
 
+const avatarPalette = ["#8B6CFF", "#C9F25B", "#FF7460", "#FFBA4A", "#4AD6EB", "#FF6B7A", "#7C9CFF", "#B98CFF"];
+
+export function randomAvatarColor() {
+  return avatarPalette[Math.floor(Math.random() * avatarPalette.length)];
+}
+
 export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -86,6 +92,12 @@ export type SessionUser = {
   bot: boolean;
   createdAt: string;
   badges: BadgeId[];
+  youtubeUrl: string;
+  spotifyUrl: string;
+  steamUrl: string;
+  robloxUrl: string;
+  appleMusicUrl: string;
+  totpEnabled: boolean;
 };
 
 export function publicUser(user: {
@@ -93,6 +105,7 @@ export function publicUser(user: {
   tag: string; title: string; customStatus: string; bio: string; avatarUrl: string;
   bannerUrl: string; activity: string; status: string; bot: number;
   createdAt: Date; googleSub?: string | null;
+  youtubeUrl?: string; spotifyUrl?: string; steamUrl?: string; robloxUrl?: string; appleMusicUrl?: string; totpEnabled?: number;
 }): SessionUser {
   return {
     id: user.id,
@@ -111,6 +124,12 @@ export function publicUser(user: {
     bot: Boolean(user.bot),
     createdAt: user.createdAt.toISOString(),
     badges: userBadges(user.createdAt, user.username, user.tag),
+    youtubeUrl: user.youtubeUrl ?? "",
+    spotifyUrl: user.spotifyUrl ?? "",
+    steamUrl: user.steamUrl ?? "",
+    robloxUrl: user.robloxUrl ?? "",
+    appleMusicUrl: user.appleMusicUrl ?? "",
+    totpEnabled: Boolean(user.totpEnabled),
   };
 }
 

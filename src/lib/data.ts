@@ -10,6 +10,27 @@ export type Member = {
   bot?: boolean;
   badges?: string[];
   avatarUrl?: string;
+  bio?: string;
+  tag?: string;
+  bannerUrl?: string;
+};
+
+export type UserProfile = {
+  id: string;
+  name: string;
+  displayName: string;
+  tag: string;
+  title: string;
+  customStatus: string;
+  bio: string;
+  color: string;
+  avatarUrl?: string;
+  bannerUrl?: string;
+  activity?: string;
+  status: Status;
+  bot: boolean;
+  badges?: string[];
+  mutual: number;
 };
 
 export type Attachment = {
@@ -24,6 +45,7 @@ export type Attachment = {
 
 export type Message = {
   id: string;
+  authorId?: string;
   author: string;
   color: string;
   time: string;
@@ -56,6 +78,7 @@ export type ServerItem = {
   id: string;
   name: string;
   color: string;
+  iconUrl?: string;
 };
 
 export type DMItem = {
@@ -98,6 +121,12 @@ export type AuthUser = {
   bot: boolean;
   createdAt: string;
   badges: string[];
+  youtubeUrl?: string;
+  spotifyUrl?: string;
+  steamUrl?: string;
+  robloxUrl?: string;
+  appleMusicUrl?: string;
+  totpEnabled?: boolean;
 };
 
 export type Bootstrap = {

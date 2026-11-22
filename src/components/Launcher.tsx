@@ -23,7 +23,7 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
   const username = useApp((s) => s.user?.username ?? "Misafir");
   const authLoading = useApp((s) => s.authLoading);
   const bootstrapLoading = useApp((s) => s.bootstrapLoading);
-  const [version, setVersion] = useState("0.1.8");
+  const [version, setVersion] = useState("0.1.9");
   const [updateState, setUpdateState] = useState<UpdateState>("checking");
   const [update, setUpdate] = useState<Update | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -50,7 +50,15 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
     if (!update || installing) return;
     setInstalling(true);
     try {
-      await update.downloadAndInstall();
+      let total = 0;
+      let downloaded = 0;
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") total = event.data.contentLength ?? 0;
+        if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          if (total > 0) setUpdateState("available");
+        }
+      });
       await relaunch();
     } catch {
       setUpdateState("error");
@@ -85,7 +93,7 @@ export function Launcher({ loading, onClose }: { loading: boolean; onClose: () =
             <SlopLogo size={32} />
             <div>
               <p className="font-display text-[13px] font-extrabold leading-none tracking-tight">SlopSound</p>
-              <p className="mt-1 text-[9px] font-bold uppercase tracking-[.18em] text-muted">UNSLOP Edition</p>
+              <p className="mt-1 text-[9px] font-bold uppercase tracking-[.18em] text-muted">SlopSound Edition</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

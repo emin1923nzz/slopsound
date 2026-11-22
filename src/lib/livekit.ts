@@ -54,6 +54,19 @@ export type RecordingNotice = {
   at: number;
 };
 
+export type RemoteControlRequest = {
+  fromId: string;
+  fromName: string;
+  at: number;
+};
+
+export type RemoteControlState = {
+  active: boolean;
+  controllerId: string | null;
+  controllerName: string | null;
+  targetId: string | null;
+};
+
 export type ConnectionEvent = {
   at: number;
   state: string;
@@ -100,6 +113,8 @@ type LiveKitState = {
   stats: ConnectionStats;
   history: ConnectionEvent[];
   recordingNotice: RecordingNotice | null;
+  remoteControlRequest: RemoteControlRequest | null;
+  remoteControl: RemoteControlState;
   setUrl: (url: string) => void;
   setToken: (token: string) => void;
   setIceConfig: (patch: Partial<Pick<LiveKitState, "stunUrl" | "turnUrl" | "turnUsername" | "turnPassword">>) => void;
@@ -119,6 +134,9 @@ type LiveKitState = {
   setScreenPaused: (paused: boolean) => Promise<void>;
   setPublishQuality: (quality: QualityId) => void;
   publishRecordingNotice: (state: "started" | "stopped") => Promise<void>;
+  requestRemoteControl: (targetIdentity: string) => Promise<boolean>;
+  respondRemoteControl: (requesterIdentity: string, accepted: boolean) => Promise<boolean>;
+  stopRemoteControl: () => Promise<void>;
   getRemoteAudioElements: () => HTMLAudioElement[];
   attachTrack: (el: HTMLVideoElement | null, track: RemoteVideoTrack | null) => void;
 };
@@ -274,7 +292,8 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
     const { stunUrl, turnUrl, turnUsername, turnPassword } = get();
     const servers: RTCIceServer[] = [];
     if (stunUrl.trim()) servers.push({ urls: stunUrl.trim() });
-    if (turnUrl.trim()) servers.push({ urls: turnUrl.trim(), username: turnUsername, credential: turnPassword });
+    const turnUrls = turnUrl.split(",").map((url) => url.trim()).filter(Boolean);
+    if (turnUrls.length) servers.push({ urls: turnUrls, username: turnUsername, credential: turnPassword });
     return servers;
   }
 
@@ -296,6 +315,8 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
     stats: emptyStats,
     history: [],
     recordingNotice: null,
+    remoteControlRequest: null,
+    remoteControl: { active: false, controllerId: null, controllerName: null, targetId: null },
 
     setUrl: (url) => set({ url }),
     setToken: (token) => set({ token }),
@@ -341,28 +362,34 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       });
       room.on(RoomEvent.ActiveSpeakersChanged, sync);
       room.on(RoomEvent.ConnectionStateChanged, (state) => setStatus(state));
-      room.on(RoomEvent.DataReceived, (payload, participant) => {
+      room.on(RoomEvent.DataReceived, async (payload, participant) => {
         try {
           const message = JSON.parse(new TextDecoder().decode(payload)) as {
-            type?: string;
-            state?: "started" | "stopped";
-            at?: number;
+            type?: string; state?: "started" | "stopped"; at?: number;
+            targetIdentity?: string; requesterIdentity?: string; accepted?: boolean;
           };
+          const fromId = participant?.identity ?? "";
+          const fromName = participant?.name || participant?.identity || "Bir katılımcı";
           if (message.type === "slopsound-recording" && message.state) {
-            set({
-              recordingNotice: {
-                by: participant?.name || participant?.identity || "Bir katılımcı",
-                state: message.state,
-                at: message.at ?? Date.now(),
-              },
-            });
+            set({ recordingNotice: { by: fromName, state: message.state, at: message.at ?? Date.now() } });
+          }
+          if (message.type === "slopsound-remote-request" && message.targetIdentity === room.localParticipant.identity) {
+            const remote = (await import("./store")).useApp.getState().remoteControl;
+            if (remote.enabled) set({ remoteControlRequest: { fromId, fromName, at: message.at ?? Date.now() } });
+          }
+          if (message.type === "slopsound-remote-response" && message.requesterIdentity === room.localParticipant.identity) {
+            if (message.accepted) set({ remoteControl: { active: true, controllerId: room.localParticipant.identity, controllerName: room.localParticipant.name || "Sen", targetId: fromId } });
+            else set({ remoteControlRequest: null });
+          }
+          if (message.type === "slopsound-remote-stop") {
+            set({ remoteControl: { active: false, controllerId: null, controllerName: null, targetId: null }, remoteControlRequest: null });
           }
         } catch { /* bilinmeyen veri paketi */ }
       });
       room.on(RoomEvent.Disconnected, () => {
         cleanup();
         setStatus(ConnectionState.Disconnected, "Odadan ayrıldı");
-        set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null });
+        set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null, remoteControlRequest: null, remoteControl: { active: false, controllerId: null, controllerName: null, targetId: null } });
       });
 
       try {
@@ -409,7 +436,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       session.room?.disconnect();
       cleanup();
       setStatus(ConnectionState.Disconnected, "Bağlantı kapatıldı");
-      set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null });
+      set({ participants: [], screens: [], activeSpeakerIds: [], screenSharing: false, screenPaused: false, localScreenStream: null, recordingNotice: null, remoteControlRequest: null, remoteControl: { active: false, controllerId: null, controllerName: null, targetId: null } });
     },
 
     setMicEnabled: async (enabled) => {
@@ -442,7 +469,7 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
             video: { displaySurface: displaySurfaceFor(source) },
             resolution: { width: preset.width, height: preset.height, frameRate: preset.fps },
             audio: systemAudio,
-            surfaceSwitching: "include",
+            surfaceSwitching: "exclude",
             selfBrowserSurface: "exclude",
             preferCurrentTab: source === "tab" || source === "browser",
             systemAudio: "include",
@@ -515,12 +542,36 @@ export const useLiveKit = create<LiveKitState>()(persist((set, get) => {
       const map = { low: VideoQuality.LOW, medium: VideoQuality.MEDIUM, high: VideoQuality.HIGH } as const;
       session.localVideo?.setPublishingQuality(map[quality]);
     },
-    publishRecordingNotice: async (state) => {
-      const room = session.room;
-      if (!room) return;
-      const payload = new TextEncoder().encode(JSON.stringify({ type: "slopsound-recording", state, at: Date.now() }));
+  publishRecordingNotice: async (state) => {
+    const room = session.room;
+    if (!room) return;
+    const payload = new TextEncoder().encode(JSON.stringify({ type: "slopsound-recording", state, at: Date.now() }));
+    await room.localParticipant.publishData(payload, { reliable: true });
+  },
+  requestRemoteControl: async (targetIdentity) => {
+    const room = session.room;
+    if (!room) return false;
+    const payload = new TextEncoder().encode(JSON.stringify({ type: "slopsound-remote-request", targetIdentity, at: Date.now() }));
+    await room.localParticipant.publishData(payload, { reliable: true });
+    return true;
+  },
+  respondRemoteControl: async (requesterIdentity, accepted) => {
+    const room = session.room;
+    if (!room) return false;
+    const payload = new TextEncoder().encode(JSON.stringify({ type: "slopsound-remote-response", requesterIdentity, accepted, at: Date.now() }));
+    await room.localParticipant.publishData(payload, { reliable: true });
+    if (accepted) set({ remoteControl: { active: true, controllerId: requesterIdentity, controllerName: get().remoteControlRequest?.fromName ?? requesterIdentity, targetId: room.localParticipant.identity } });
+    set({ remoteControlRequest: null });
+    return true;
+  },
+  stopRemoteControl: async () => {
+    const room = session.room;
+    if (room) {
+      const payload = new TextEncoder().encode(JSON.stringify({ type: "slopsound-remote-stop", at: Date.now() }));
       await room.localParticipant.publishData(payload, { reliable: true });
-    },
+    }
+    set({ remoteControl: { active: false, controllerId: null, controllerName: null, targetId: null }, remoteControlRequest: null });
+  },
     getRemoteAudioElements: () => Array.from(session.audioHost?.querySelectorAll("audio") ?? []),
     attachTrack: (el, track) => {
       if (!el || !track) return;

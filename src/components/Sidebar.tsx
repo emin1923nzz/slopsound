@@ -4,9 +4,11 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Hash, Volume2, VolumeX, Megaphone, ChevronDown, Plus, Compass, Download, Search,
   MessageCircle, Mic, MicOff, Video, VideoOff, UserPlus, Copy, Settings2, Link2,
+  UserRound, ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { useT } from "@/lib/i18n";
 import { INVITE_BASE_URL } from "@/lib/config";
 import { copyText } from "@/lib/native";
 import { copyToClipboard } from "@/lib/context-menu";
@@ -18,6 +20,7 @@ import {
 } from "./ui";
 import { InputContextMenu } from "./InputContextMenu";
 import { SlopAvatar, SlopLogo } from "./SlopAvatar";
+import { resizeProfileImage } from "./Settings";
 
 function Rail() {
   const activeServer = useApp((s) => s.activeServer);
@@ -60,10 +63,14 @@ function Rail() {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => selectServer(server.id)}
-                    className={cn("rail-btn font-display text-[12px]", activeServer === server.id && "text-brand")}
+                    className={cn("rail-btn overflow-hidden font-display text-[12px]", activeServer === server.id && "text-brand")}
                     data-active={activeServer === server.id}
                   >
-                    {server.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()}
+                    {server.iconUrl ? (
+                      <img src={server.iconUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      server.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()
+                    )}
                   </button>
                 </TooltipTrigger>
               </ContextMenuTrigger>
@@ -86,9 +93,9 @@ function Rail() {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={() => toast("Keşfet yakında")} className="rail-btn"><Compass size={18} /></button>
+            <button onClick={() => { useApp.getState().setView("settings"); useApp.getState().setSettingsSection("Keşfet"); }} className="rail-btn"><Compass size={18} /></button>
           </TooltipTrigger>
-          <TooltipContent side="right">Sunucuları keşfet</TooltipContent>
+          <TooltipContent side="right">Keşfet</TooltipContent>
         </Tooltip>
       </div>
       <div className="mt-auto flex flex-col items-center gap-2.5">
@@ -254,6 +261,7 @@ function DMPanel() {
   const members = useApp((s) => s.members);
   const user = useApp((s) => s.user);
   const createGroupDM = useApp((s) => s.createGroupDM);
+  const openProfile = useApp((s) => s.openProfile);
   const toggleChannelMute = useApp((s) => s.toggleChannelMute);
   const mutedChannelIds = useApp((s) => s.mutedChannelIds);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -314,6 +322,7 @@ function DMPanel() {
                   </button>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
+                  {!dm.group && <ContextMenuItem onSelect={() => openProfile(dm.peerId)}><UserRound size={14} className="text-brand" /> Profili görüntüle</ContextMenuItem>}
                   <ContextMenuItem onSelect={() => selectDM(dm.id)}><MessageCircle size={14} className="text-brand" /> DM'yi aç</ContextMenuItem>
                   <ContextMenuItem onSelect={() => toggleChannelMute(dm.id)}>
                     {muted ? <Volume2 size={14} className="text-lime" /> : <VolumeX size={14} className="text-muted" />} {muted ? "Bildirimleri aç" : "Bildirimleri sessize al"}
@@ -348,7 +357,7 @@ function DMPanel() {
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setGroupOpen(false)}>Vazgeç</Button>
               <Button
-                disabled={groupBusy || !groupName.trim() || selected.length === 0}
+                disabled={groupBusy || groupName.trim().length < 2 || selected.length === 0}
                 onClick={() => void (async () => {
                   setGroupBusy(true);
                   const id = await createGroupDM(groupName.trim(), selected);
@@ -490,25 +499,65 @@ function CreateServerDialog() {
   const setOpen = useApp((s) => s.setCreateServerOpen);
   const createServer = useApp((s) => s.createServer);
   const [name, setName] = useState("");
+  const [iconUrl, setIconUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function pickIcon(file?: File) {
+    if (!file) return;
+    try {
+      setIconUrl(await resizeProfileImage(file, 256, 256));
+    } catch {
+      toast.error("Görsel okunamadı");
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const value = name.trim();
     if (!value || busy) return;
     setBusy(true);
-    const ok = await createServer(value);
+    const ok = await createServer(value, iconUrl || undefined);
     setBusy(false);
-    if (ok) setName("");
+    if (ok) {
+      setName("");
+      setIconUrl("");
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(value) => {
+      setOpen(value);
+      if (!value) {
+        setName("");
+        setIconUrl("");
+      }
+    }}>
       <DialogContent className="w-[min(420px,92vw)]">
         <DialogTitle className="font-display text-[17px] font-extrabold">Yeni sunucu kur</DialogTitle>
-        <p className="mt-1 text-[11px] text-muted">Sunucu adını yaz, gerisini hazırlayalım.</p>
+        <p className="mt-1 text-[11px] text-muted">Sunucu adını ve istersen simgesini seç.</p>
         <form onSubmit={(event) => void submit(event)} className="mt-5 space-y-3">
-          <Input autoFocus value={name} maxLength={64} onChange={(event) => setName(event.target.value)} placeholder="Sunucu adı" aria-label="Sunucu adı" />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-dashed border-white/15 bg-black/25 text-muted transition hover:border-brand/50 hover:text-brand"
+              aria-label="Sunucu simgesi seç"
+            >
+              {iconUrl ? <img src={iconUrl} alt="" className="h-full w-full object-cover" /> : <ImagePlus size={22} />}
+            </button>
+            <div className="min-w-0 flex-1">
+              <Input autoFocus value={name} maxLength={64} onChange={(event) => setName(event.target.value)} placeholder="Sunucu adı" aria-label="Sunucu adı" />
+              <p className="mt-1.5 text-[10px] text-muted">PNG, JPG veya WebP · kareye kırpılır</p>
+            </div>
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="hidden"
+            onChange={(event) => void pickIcon(event.target.files?.[0])}
+          />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Vazgeç</Button>
             <Button type="submit" disabled={busy || !name.trim()}>{busy ? "Kuruluyor…" : "Sunucuyu kur"}</Button>
@@ -524,6 +573,7 @@ export function Sidebar() {
   const setSidebarTab = useApp((s) => s.setSidebarTab);
   const unreadDMs = useApp((s) => s.unreadDMs);
   const dmCount = Object.values(unreadDMs).reduce((a, b) => a + b, 0);
+  const t = useT();
 
   return (
     <div className="relative z-10 flex h-full shrink-0">
@@ -532,8 +582,8 @@ export function Sidebar() {
       <aside className="flex w-full min-w-[220px] flex-col border-r border-white/[.05] bg-surface/45">
         <div className="no-drag flex items-center gap-1 px-3 pb-2 pt-3">
           {([
-            ["servers", "Sunucular"],
-            ["dms", dmCount > 0 ? `DM • ${dmCount}` : "DM"],
+            ["servers", t("Sunucular")],
+            ["dms", dmCount > 0 ? `${t("Mesajlar")} • ${dmCount}` : t("Mesajlar")],
           ] as const).map(([key, label]) => (
             <button
               key={key}

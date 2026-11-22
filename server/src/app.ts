@@ -5,13 +5,14 @@ import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { and, desc, eq } from "drizzle-orm";
+import { authenticator } from "otplib";
 import { cookieSameSite, corsOrigins, env } from "./env.js";
 import { db } from "./db.js";
 import { auditLogs, channels, invites, reports, serverMembers, servers, users } from "./schema.js";
 import { rateLimit as checkRateLimit } from "./redis.js";
 import { requireRole } from "./rbac.js";
 import { writeAudit } from "./audit.js";
-import { registerRoutes } from "./routes.js";
+import { mediaUrl, registerRoutes } from "./routes.js";
 import { googleComplete, googleStart } from "./google.js";
 import {
   SESSION_COOKIE,
@@ -23,6 +24,8 @@ import {
   hashPassword,
   hashToken,
   listSessions,
+  publicUser,
+  randomAvatarColor,
   tokenFromRequest,
   verifyPassword,
 } from "./auth.js";
@@ -36,6 +39,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(1).max(128),
+  totp: z.string().optional(),
 });
 
 const uuid = z.string().uuid();
@@ -75,6 +79,7 @@ export function buildApp() {
       email: parsed.data.email,
       username: parsed.data.username,
       passwordHash,
+      avatarColor: randomAvatarColor(),
     }).returning({ id: users.id });
     const session = await createSession(user.id);
     reply.setCookie(SESSION_COOKIE, session.token, cookieOptions(session.expiresAt));
@@ -84,13 +89,20 @@ export function buildApp() {
   app.post("/auth/login", async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
-    const [user] = await db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
-    if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+    const [user] = await db.select().from(users).where(eq(users.email, parsed.data.email.toLowerCase())).limit(1);
+    if (!user || !user.passwordHash || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
       return reply.code(401).send({ error: "invalid_credentials" });
+    }
+    if (user.totpEnabled) {
+      const code = parsed.data.totp?.trim() ?? "";
+      if (!code) return reply.code(403).send({ error: "totp_required" });
+      if (!user.totpSecret || !authenticator.check(code, user.totpSecret)) {
+        return reply.code(401).send({ error: "invalid_totp" });
+      }
     }
     const session = await createSession(user.id);
     reply.setCookie(SESSION_COOKIE, session.token, cookieOptions(session.expiresAt));
-    return { ok: true };
+    return publicUser(user);
   });
 
   app.post("/auth/logout", async (request, reply) => {
@@ -170,9 +182,14 @@ export function buildApp() {
   app.post("/servers", async (request, reply) => {
     const user = await getSessionUser(tokenFromRequest(request));
     if (!user) return reply.code(401).send({ error: "unauthorized" });
-    const parsed = z.object({ name: z.string().min(2).max(64) }).safeParse(request.body);
+    const parsed = z.object({ name: z.string().min(2).max(64), iconUrl: mediaUrl(2_000_000), isPublic: z.boolean().optional() }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
-    const [server] = await db.insert(servers).values({ name: parsed.data.name, ownerId: user.id }).returning();
+    const [server] = await db.insert(servers).values({
+      name: parsed.data.name,
+      iconUrl: parsed.data.iconUrl ?? "",
+      isPublic: parsed.data.isPublic ? 1 : 0,
+      ownerId: user.id,
+    }).returning();
     await db.insert(serverMembers).values({ serverId: server.id, userId: user.id, role: "owner" });
     await db.insert(channels).values([
       { serverId: server.id, name: "genel", type: "text", description: "Herkesin yazdığı ana kanal", groupLabel: "Kanallar", position: 0 },
@@ -180,6 +197,21 @@ export function buildApp() {
     ]);
     await writeAudit({ serverId: server.id, actorId: user.id, action: "server.create", targetType: "server", targetId: server.id });
     return reply.code(201).send(server);
+  });
+
+  app.patch("/servers/:id", async (request, reply) => {
+    const user = await getSessionUser(tokenFromRequest(request));
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const { id } = request.params as { id: string };
+    if (!uuid.safeParse(id).success) return reply.code(400).send({ error: "invalid_id" });
+    if (!(await requireRole(user.id, id, "admin"))) return reply.code(403).send({ error: "forbidden" });
+    const parsed = z.object({ isPublic: z.boolean().optional(), name: z.string().min(2).max(64).optional() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    const patch: Record<string, unknown> = {};
+    if (parsed.data.isPublic !== undefined) patch.isPublic = parsed.data.isPublic ? 1 : 0;
+    if (parsed.data.name !== undefined) patch.name = parsed.data.name.trim();
+    const [server] = await db.update(servers).set(patch).where(eq(servers.id, id)).returning();
+    return server;
   });
 
   app.post("/servers/:id/invites", async (request, reply) => {

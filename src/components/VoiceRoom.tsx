@@ -128,6 +128,11 @@ export function VoiceRoom() {
   const setScreenPaused = useLiveKit((s) => s.setScreenPaused);
   const stats = useLiveKit((s) => s.stats);
   const reconnect = useLiveKit((s) => s.reconnect);
+  const remoteControlRequest = useLiveKit((s) => s.remoteControlRequest);
+  const remoteControl = useLiveKit((s) => s.remoteControl);
+  const requestRemoteControl = useLiveKit((s) => s.requestRemoteControl);
+  const respondRemoteControl = useLiveKit((s) => s.respondRemoteControl);
+  const stopRemoteControl = useLiveKit((s) => s.stopRemoteControl);
   const recording = useRecording((s) => s.recording);
   const recordingMode = useRecording((s) => s.mode);
   const startRecording = useRecording((s) => s.start);
@@ -273,23 +278,28 @@ export function VoiceRoom() {
               ))}
             </div>
           )}
-          {screenSharing && (
-            <>
-              <LocalScreenTile attachScreen={attachScreen} stream={localScreenStream} />
-              {remoteScreen && (
-                <VideoTile
-                  id="remote-screen"
-                  name={remoteScreen.name}
-                  color={remoteScreen.color}
-                  role="Ekran paylaşımı"
-                  micOn={remoteScreen.audioOn}
-                  camOn
-                  speaking={false}
-                  track={remoteScreen.videoTrack}
-                  screen
-                />
-              )}
-            </>
+          {screenSharing && <LocalScreenTile attachScreen={attachScreen} stream={localScreenStream} />}
+          {remoteScreen && (
+            <div className="relative col-span-2">
+              <VideoTile
+                id="remote-screen"
+                name={remoteScreen.name}
+                color={remoteScreen.color}
+                camOn
+                micOn={remoteScreen.audioOn}
+                speaking={activeSpeakerIds.includes(remoteScreen.id)}
+                level={remoteScreen.audioLevel}
+                track={remoteScreen.videoTrack}
+                screen
+              />
+              <div className="absolute right-3 top-3 z-10 flex gap-2">
+                {remoteControl.active && remoteControl.targetId === remoteScreen.id ? (
+                  <button onClick={() => void stopRemoteControl()} className="rounded-full bg-danger/85 px-3 py-1.5 text-[10px] font-bold text-white backdrop-blur">Kontrolü bırak</button>
+                ) : (
+                  <button onClick={() => void requestRemoteControl(remoteScreen.id).then((ok) => ok ? toast.success("Kontrol isteği gönderildi") : toast.error("İstek gönderilemedi"))} className="rounded-full bg-brand/85 px-3 py-1.5 text-[10px] font-bold text-white backdrop-blur">Kontrol iste</button>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
@@ -350,19 +360,23 @@ export function VoiceRoom() {
               <div className="flex items-center gap-2 text-muted"><MonitorUp size={14} /><p className="text-[11px] font-bold">Paylaşım kaynağı</p></div>
               {screenSharing && <button aria-label="Paylaşımı durdur" onClick={() => void toggleShare()} className="flex items-center gap-1 rounded-full bg-danger/15 px-2 py-1 text-[9px] font-bold text-danger"><Square size={9} /> Durdur</button>}
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-1.5">
-              <button aria-label="Tüm ekranı paylaş" onClick={() => void changeSource("monitor")} data-active={screenSource === "monitor"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Monitor size={14} />Ekran</button>
-              <button aria-label="Pencere paylaş" onClick={() => void changeSource("window")} data-active={screenSource === "window"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><AppWindow size={14} />Pencere</button>
-              <button aria-label="Sekme paylaş" onClick={() => void changeSource("tab")} data-active={screenSource === "tab" || screenSource === "browser"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Globe size={14} />Sekme</button>
-            </div>
-            <p className="mt-3 text-[9px] font-bold uppercase tracking-wider text-muted">İçerik ipucu</p>
-            <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-              {screenContentHints.map((hint, i) => (
-                <button key={hint.id} onClick={() => void changeContentHint(hint.id)} data-active={screenContentHint === hint.id} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-1 py-1.5 text-[9px] font-bold text-paper/80 transition data-[active=true]:bg-brand data-[active=true]:text-ink">
-                  {i === 0 ? <Type size={11} /> : i === 1 ? <Film size={11} /> : <Activity size={11} />}{hint.label}
-                </button>
-              ))}
-            </div>
+            {!screenSharing && (
+              <>
+                <div className="mt-3 grid grid-cols-3 gap-1.5">
+                  <button aria-label="Tüm ekranı paylaş" onClick={() => void changeSource("monitor")} data-active={screenSource === "monitor"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Monitor size={14} />Ekran</button>
+                  <button aria-label="Pencere paylaş" onClick={() => void changeSource("window")} data-active={screenSource === "window"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><AppWindow size={14} />Pencere</button>
+                  <button aria-label="Sekme paylaş" onClick={() => void changeSource("tab")} data-active={screenSource === "tab" || screenSource === "browser"} className="icon-btn h-auto flex-col gap-1 py-2 text-[9px]"><Globe size={14} />Sekme</button>
+                </div>
+                <p className="mt-3 text-[9px] font-bold uppercase tracking-wider text-muted">İçerik ipucu</p>
+                <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                  {screenContentHints.map((hint, i) => (
+                    <button key={hint.id} onClick={() => void changeContentHint(hint.id)} data-active={screenContentHint === hint.id} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-1 py-1.5 text-[9px] font-bold text-paper/80 transition data-[active=true]:bg-brand data-[active=true]:text-ink">
+                      {i === 0 ? <Type size={11} /> : i === 1 ? <Film size={11} /> : <Activity size={11} />}{hint.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <p className="mt-3 text-[9px] font-bold uppercase tracking-wider text-muted">Kalite profili</p>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               {screenQualityOptions.map((item) => (
@@ -371,16 +385,20 @@ export function VoiceRoom() {
                 </button>
               ))}
             </div>
-            <button aria-label="Sistem sesini paylaş" onClick={() => void changeSystemAudio()} data-active={shareSystemAudio} className="mt-2 flex w-full items-center justify-between rounded-xl bg-white/[.04] px-3 py-2 text-[10px] text-paper/80">
-              <span>Sistem sesi</span><span className={cn("font-bold", shareSystemAudio ? "text-lime" : "text-muted")}>{shareSystemAudio ? "Açık" : "Kapalı"}</span>
-            </button>
+            {!screenSharing && (
+              <button aria-label="Sistem sesini paylaş" onClick={() => void changeSystemAudio()} data-active={shareSystemAudio} className="mt-2 flex w-full items-center justify-between rounded-xl bg-white/[.04] px-3 py-2 text-[10px] text-paper/80">
+                <span>Sistem sesi</span><span className={cn("font-bold", shareSystemAudio ? "text-lime" : "text-muted")}>{shareSystemAudio ? "Açık" : "Kapalı"}</span>
+              </button>
+            )}
             <div className="mt-2 grid grid-cols-2 gap-1.5">
               <button disabled={!screenSharing} onClick={() => void setScreenPaused(!screenPaused)} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition disabled:opacity-30">
                 {screenPaused ? <Play size={11} /> : <Pause size={11} />}{screenPaused ? "Devam" : "Duraklat"}
               </button>
-              <button disabled={!screenSharing} onClick={() => void restartShare()} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition disabled:opacity-30">
-                <RotateCcw size={11} />Yeni kaynak
-              </button>
+              {!screenSharing && (
+                <button disabled={!screenSharing} onClick={() => void restartShare()} className="flex items-center justify-center gap-1 rounded-xl bg-white/[.04] px-2 py-1.5 text-[9px] font-bold text-paper/80 transition disabled:opacity-30">
+                  <RotateCcw size={11} />Yeni kaynak
+                </button>
+              )}
             </div>
             {screenSharing && (
               <div className="mt-3 space-y-1.5 border-t border-white/[.06] pt-3 text-[10px] text-paper/75">
@@ -407,6 +425,18 @@ export function VoiceRoom() {
         </aside>
       </div>
 
+      <AnimatePresence>
+        {remoteControlRequest && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="absolute bottom-24 left-1/2 z-20 w-[min(420px,92vw)] -translate-x-1/2 rounded-2xl border border-brand/25 bg-surface/95 p-4 shadow-float backdrop-blur-xl">
+            <p className="text-[12px] font-bold">{remoteControlRequest.fromName} ekranını kontrol etmek istiyor</p>
+            <p className="mt-1 text-[11px] text-muted">Sadece güvendiğin kişilere izin ver. İzin verirsen bu oturumda kontrol sinyali açılır.</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button onClick={() => void respondRemoteControl(remoteControlRequest.fromId, false)} className="rounded-full bg-white/[.06] px-3 py-1.5 text-[11px] font-bold">Reddet</button>
+              <button onClick={() => void respondRemoteControl(remoteControlRequest.fromId, true)} className="rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-white">İzin ver</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
         <div className="glass flex items-center gap-1.5 rounded-full px-3 py-2.5 shadow-float">
           <button aria-label={micOn ? "Mikrofonu kapat" : "Mikrofonu aç"} onClick={toggleMic} className="icon-btn" data-active={micOn} data-off={!micOn}>{micOn ? <Mic size={17} /> : <MicOff size={17} />}</button>

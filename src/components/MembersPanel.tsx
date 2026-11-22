@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { motion } from "motion/react";
-import { Search, Crown, UserPlus, Copy, MessageCircle } from "lucide-react";
+import { Search, Crown, UserPlus, Copy, MessageCircle, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { INVITE_BASE_URL } from "@/lib/config";
@@ -13,12 +13,12 @@ import { InputContextMenu } from "./InputContextMenu";
 import { SlopAvatar } from "./SlopAvatar";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "./ui";
 
-function MemberRow({ member, onOpenDm, onCopyInvite }: { member: Member; onOpenDm: (member: Member) => void; onCopyInvite: () => void }) {
+function MemberRow({ member, onOpenDm, onOpenProfile, onCopyInvite }: { member: Member; onOpenDm: (member: Member) => void; onOpenProfile: (member: Member) => void; onCopyInvite: () => void }) {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="flex items-center gap-2.5 rounded-card px-2.5 py-2 transition hover:bg-white/[.045]">
-          <SlopAvatar name={member.name} size={32} status={member.status} showDot />
+        <button type="button" onClick={() => onOpenProfile(member)} className="flex w-full items-center gap-2.5 rounded-card px-2.5 py-2 text-left transition hover:bg-white/[.045]">
+          <SlopAvatar name={member.name} src={member.avatarUrl} size={32} status={member.status} showDot />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className={cn("truncate text-[12.5px] font-bold", member.status === "offline" && "text-muted/60")}>{member.name}</span>
@@ -26,11 +26,12 @@ function MemberRow({ member, onOpenDm, onCopyInvite }: { member: Member; onOpenD
               {member.bot && <span className="rounded bg-brand/20 px-1 text-[8px] font-black text-brand">AI</span>}
               <BadgeChips badges={member.badges} compact />
             </div>
-            <p className="truncate text-[10px] text-muted">{member.activity}</p>
+            <p className="truncate text-[10px] text-muted">{member.activity || member.bio || ""}</p>
           </div>
-        </div>
+        </button>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onOpenProfile(member)}><UserRound size={14} className="text-brand" /> Profili görüntüle</ContextMenuItem>
         <ContextMenuItem onSelect={() => void copyToClipboard(member.name).then(() => toast.success("Ad kopyalandı")).catch(() => toast.error("Kopyalanamadı"))}><Copy size={14} className="text-muted" /> Adı kopyala</ContextMenuItem>
         {!member.bot && <ContextMenuItem onSelect={() => onOpenDm(member)}><MessageCircle size={14} className="text-brand" /> DM aç</ContextMenuItem>}
         <ContextMenuItem onSelect={onCopyInvite}><UserPlus size={14} className="text-lime" /> Davet linki kopyala</ContextMenuItem>
@@ -45,6 +46,7 @@ export function MembersPanel() {
   const members = useApp((s) => s.members);
   const createInvite = useApp((s) => s.createInvite);
   const createDM = useApp((s) => s.createDM);
+  const openProfile = useApp((s) => s.openProfile);
   const user = useApp((s) => s.user);
   const activeServer = useApp((s) => s.activeServer);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -108,7 +110,7 @@ export function MembersPanel() {
               <p className="category-label !px-2.5">{group} — {list.length}</p>
               <div className="mt-1 space-y-0.5">
                 {list.map((member) => (
-                  <MemberRow key={member.id} member={member} onOpenDm={(target) => void openDm(target)} onCopyInvite={() => void copyInvite()} />
+                  <MemberRow key={member.id} member={member} onOpenDm={(target) => void openDm(target)} onOpenProfile={(target) => openProfile(target.id)} onCopyInvite={() => void copyInvite()} />
                 ))}
               </div>
             </div>

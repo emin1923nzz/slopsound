@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { emitCall, getRealtimeSocket, onCall, onRealtimeConnect } from "@/lib/realtime";
 import { useApp } from "@/lib/store";
+import { api } from "@/lib/api";
 
 export type CallMode = "audio" | "video";
 export type CallPeer = { id: string; username: string; avatarColor: string };
@@ -34,7 +35,23 @@ type CallState = {
 
 type BoundSocket = ReturnType<typeof getRealtimeSocket>;
 
-const iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+const fallbackIceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+let iceServers: RTCIceServer[] = fallbackIceServers;
+let rtcConfigPromise: Promise<RTCIceServer[]> | null = null;
+
+async function loadIceServers() {
+  if (rtcConfigPromise) return rtcConfigPromise;
+  rtcConfigPromise = api.rtcConfig()
+    .then((config) => {
+      iceServers = config.iceServers?.length ? config.iceServers : fallbackIceServers;
+      return iceServers;
+    })
+    .catch(() => {
+      rtcConfigPromise = null;
+      return iceServers;
+    });
+  return rtcConfigPromise;
+}
 
 let peerConnection: RTCPeerConnection | null = null;
 let localStream: MediaStream | null = null;
@@ -82,7 +99,8 @@ async function createConnection(channelId: string, mode: CallMode) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === "video" });
   localStream = stream;
   callChannelId = channelId;
-  const connection = new RTCPeerConnection({ iceServers });
+  const servers = await loadIceServers();
+  const connection = new RTCPeerConnection({ iceServers: servers, iceCandidatePoolSize: 4 });
   peerConnection = connection;
   stream.getTracks().forEach((track) => connection.addTrack(track, stream));
   connection.ontrack = (event) => {

@@ -18,11 +18,14 @@ import { useLiveKit } from "./livekit";
 
 export type View = "app" | "settings" | "addFriend" | "maintenance" | "offline" | "landing";
 export type Accent = "violet" | "lime" | "coral" | "cyan" | "amber";
+export type Theme = "dark-violet" | "light" | "yellow-black" | "system";
+export type Language = "tr" | "en" | "de" | "fr";
 export type NotificationPrefs = {
   dm: boolean;
   mention: boolean;
   server: boolean;
   sound: boolean;
+  desktop: boolean;
   quiet: string;
 };
 
@@ -47,6 +50,7 @@ type State = {
   previousView: View;
   launcherOpen: boolean;
   createServerOpen: boolean;
+  selectedProfileId: string | null;
   settingsSection: string;
   addFriendTab: string;
   sidebarTab: "servers" | "dms";
@@ -73,8 +77,13 @@ type State = {
   pinnedMessageIds: string[];
   mutedChannelIds: string[];
   notificationPrefs: NotificationPrefs;
+  remoteControl: { enabled: boolean; keyboard: boolean; mouse: boolean; adminsOnly: boolean; code: string };
   profile: Profile;
   accent: Accent;
+  theme: Theme;
+  language: Language;
+  autoTranslate: boolean;
+  tutorialDone: boolean;
   density: "comfortable" | "compact";
   reduceMotion: boolean;
   focusMode: boolean;
@@ -90,7 +99,7 @@ type State = {
   unreadDMs: Record<string, number>;
   acceptedRequests: string[];
   initAuth: () => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, totp?: string) => Promise<void>;
   register: (email: string, username: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -99,6 +108,8 @@ type State = {
   setView: (view: View) => void;
   setLauncherOpen: (open: boolean) => void;
   setCreateServerOpen: (open: boolean) => void;
+  openProfile: (id: string) => void;
+  closeProfile: () => void;
   setSettingsSection: (section: string) => void;
   setAddFriendTab: (tab: string) => void;
   setSidebarTab: (tab: "servers" | "dms") => void;
@@ -114,8 +125,8 @@ type State = {
   togglePin: (messageId: string) => void;
   deleteMessage: (id: string) => void;
   notifyTyping: () => void;
-  updateProfile: (patch: Partial<Profile>) => Promise<boolean>;
-  createServer: (name: string) => Promise<boolean>;
+  updateProfile: (patch: Partial<Profile> & Record<string, unknown>) => Promise<boolean>;
+  createServer: (name: string, iconUrl?: string, isPublic?: boolean) => Promise<boolean>;
   createChannel: (name: string, type: "text" | "voice" | "announcement", groupLabel: string) => Promise<boolean>;
   createInvite: (serverId?: string) => Promise<string | null>;
   joinInvite: (code: string) => Promise<void>;
@@ -124,11 +135,17 @@ type State = {
   sendFriendRequest: (username: string) => Promise<{ ok: boolean; error?: string }>;
   acceptRequest: (id: string) => Promise<void>;
   setAccent: (accent: Accent) => void;
+  setTheme: (theme: Theme) => void;
+  setLanguage: (language: Language) => void;
+  setAutoTranslate: (value: boolean) => void;
+  completeTutorial: () => void;
+  restartTutorial: () => void;
   setDensity: (density: "comfortable" | "compact") => void;
   setReduceMotion: (value: boolean) => void;
   toggleFocusMode: () => void;
   setUiScale: (value: number) => void;
   setNotificationPrefs: (patch: Partial<NotificationPrefs>) => void;
+  setRemoteControl: (patch: Partial<{ enabled: boolean; keyboard: boolean; mouse: boolean; adminsOnly: boolean; code: string }>) => void;
   toggleChannelMute: (channelId: string) => void;
   toggleMic: () => void;
   toggleCam: () => void;
@@ -257,14 +274,15 @@ export const useApp = create<State>()(persist((set, get) => {
     set((s) => duplicate ? s : { messages: [...s.messages, message] });
     if (!incoming || duplicate || message.own) return;
     const current = state.sidebarTab === "dms" ? state.activeDM : state.activeChannel;
-    if (current === channelId && typeof document !== "undefined" && document.visibilityState === "visible") return;
+    const focused = typeof document !== "undefined" && document.visibilityState === "visible" && document.hasFocus();
+    if (current === channelId && focused) return;
     const prefs = state.notificationPrefs;
-    const isDM = state.sidebarTab === "dms" && channelId === state.activeDM;
+    const isDM = state.dms.some((d) => d.id === channelId);
     const mentioned = Boolean(message.mention) || /@/.test(message.text);
     const allowed = isDM ? prefs.dm : mentioned ? prefs.mention : prefs.server;
     if (!allowed || state.mutedChannelIds.includes(channelId) || quietActive(prefs.quiet)) return;
     if (prefs.sound) useAudio.getState().playSound("mention");
-    void notify(message.author, message.text).catch(() => undefined);
+    if (prefs.desktop) void notify(message.author, message.text.slice(0, 140)).catch(() => undefined);
   }
 
   function bindRealtime() {
@@ -294,9 +312,9 @@ export const useApp = create<State>()(persist((set, get) => {
         typingTimers.delete(key);
       }, 2500));
     });
-    onPresence(({ userId, status }) => {
+    onPresence(({ userId, status, activity }) => {
       set((s) => ({
-        members: s.members.map((m) => m.id === userId ? { ...m, status: status as Status } : m),
+        members: s.members.map((m) => m.id === userId ? { ...m, status: status as Status, activity: activity ?? m.activity } : m),
         dms: s.dms.map((d) => d.peerId === userId ? { ...d, status: status as Status } : d),
       }));
     });
@@ -312,6 +330,7 @@ export const useApp = create<State>()(persist((set, get) => {
     previousView: "app",
     launcherOpen: true,
     createServerOpen: false,
+    selectedProfileId: null,
     settingsSection: "Profilim",
     addFriendTab: "Ad ile Ekle",
     sidebarTab: "servers",
@@ -337,9 +356,14 @@ export const useApp = create<State>()(persist((set, get) => {
     replyTo: null,
     pinnedMessageIds: [],
     mutedChannelIds: [],
-    notificationPrefs: { dm: true, mention: true, server: false, sound: true, quiet: "Kapalı" },
+    notificationPrefs: { dm: true, mention: true, server: false, sound: true, desktop: true, quiet: "Kapalı" },
+    remoteControl: { enabled: false, keyboard: true, mouse: true, adminsOnly: true, code: Math.random().toString(36).slice(2, 8).toUpperCase() },
     profile: defaultProfile,
     accent: "violet",
+    theme: "dark-violet",
+    language: "tr",
+    autoTranslate: false,
+    tutorialDone: false,
     density: "comfortable",
     reduceMotion: false,
     focusMode: false,
@@ -366,10 +390,10 @@ export const useApp = create<State>()(persist((set, get) => {
       }
     },
 
-    login: async (email, password) => {
+    login: async (email, password, totp) => {
       set({ error: null });
       try {
-        await api.login(email, password);
+        await api.login(email, password, totp);
         await get().refreshBootstrap();
         bindRealtime();
       } catch (error) {
@@ -459,6 +483,8 @@ export const useApp = create<State>()(persist((set, get) => {
     setView: (view) => set((s) => ({ view, previousView: s.view })),
     setLauncherOpen: (launcherOpen) => set({ launcherOpen }),
     setCreateServerOpen: (createServerOpen) => set({ createServerOpen }),
+    openProfile: (selectedProfileId) => set({ selectedProfileId }),
+    closeProfile: () => set({ selectedProfileId: null }),
     setSettingsSection: (settingsSection) => set({ settingsSection }),
     setAddFriendTab: (addFriendTab) => set({ addFriendTab }),
     setSidebarTab: (sidebarTab) => {
@@ -600,6 +626,9 @@ export const useApp = create<State>()(persist((set, get) => {
       if (patch.avatarUrl !== undefined) body.avatarUrl = patch.avatarUrl;
       if (patch.bannerUrl !== undefined) body.bannerUrl = patch.bannerUrl;
       if (patch.activity !== undefined) body.activity = patch.activity;
+      for (const key of ["youtubeUrl", "spotifyUrl", "steamUrl", "robloxUrl", "appleMusicUrl"] as const) {
+        if (patch[key] !== undefined) body[key] = patch[key];
+      }
       try {
         applyUser(await api.updateProfile(body));
         return true;
@@ -609,9 +638,9 @@ export const useApp = create<State>()(persist((set, get) => {
       }
     },
 
-    createServer: async (name) => {
+    createServer: async (name, iconUrl, isPublic) => {
       try {
-        const server = await api.createServer(name);
+        const server = await api.createServer(name, iconUrl, isPublic);
         await get().refreshBootstrap();
         get().selectServer(server.id);
         set({ createServerOpen: false, error: null });
@@ -711,11 +740,17 @@ export const useApp = create<State>()(persist((set, get) => {
     },
 
     setAccent: (accent) => set({ accent }),
+    setTheme: (theme) => set({ theme }),
+    setLanguage: (language) => set({ language }),
+    setAutoTranslate: (autoTranslate) => set({ autoTranslate }),
+    completeTutorial: () => set({ tutorialDone: true }),
+    restartTutorial: () => set({ tutorialDone: false, view: "app" }),
     setDensity: (density) => set({ density }),
     setReduceMotion: (reduceMotion) => set({ reduceMotion }),
     toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
     setUiScale: (uiScale) => set({ uiScale: Math.max(0.75, Math.min(1.5, uiScale)) }),
     setNotificationPrefs: (patch) => set((s) => ({ notificationPrefs: { ...s.notificationPrefs, ...patch } })),
+    setRemoteControl: (patch) => set((s) => ({ remoteControl: { ...s.remoteControl, ...patch } })),
     toggleChannelMute: (channelId) => set((s) => ({
       mutedChannelIds: s.mutedChannelIds.includes(channelId)
         ? s.mutedChannelIds.filter((id) => id !== channelId)
@@ -761,10 +796,24 @@ export const useApp = create<State>()(persist((set, get) => {
         return;
       }
       try {
-        const token = await api.liveKitToken(channel.id);
+        const [token, rtc] = await Promise.all([
+          api.liveKitToken(channel.id),
+          api.rtcConfig().catch(() => null),
+        ]);
         const live = useLiveKit.getState();
         live.setUrl(token.url);
         live.setToken(token.token);
+        if (rtc?.iceServers?.length) {
+          const urlsOf = (server?: RTCIceServer) => server ? (Array.isArray(server.urls) ? server.urls : [server.urls]) : [];
+          const stun = rtc.iceServers.find((server) => urlsOf(server).some((url) => url.startsWith("stun:")));
+          const turn = rtc.iceServers.find((server) => urlsOf(server).some((url) => url.startsWith("turn")));
+          live.setIceConfig({
+            stunUrl: urlsOf(stun)[0] ?? "",
+            turnUrl: urlsOf(turn).join(","),
+            turnUsername: turn?.username ?? "",
+            turnPassword: turn?.credential ?? "",
+          });
+        }
         set({ voiceChannelId: channel.id, voiceChannel: channel.name, error: null });
         const ok = await live.connect();
         if (!ok) {
@@ -801,6 +850,10 @@ export const useApp = create<State>()(persist((set, get) => {
   storage: createJSONStorage(() => localStorage),
   partialize: (s) => ({
     accent: s.accent,
+    theme: s.theme,
+    language: s.language,
+    autoTranslate: s.autoTranslate,
+    tutorialDone: s.tutorialDone,
     density: s.density,
     reduceMotion: s.reduceMotion,
     focusMode: s.focusMode,
@@ -808,6 +861,7 @@ export const useApp = create<State>()(persist((set, get) => {
     pinnedMessageIds: s.pinnedMessageIds,
     mutedChannelIds: s.mutedChannelIds,
     notificationPrefs: s.notificationPrefs,
+    remoteControl: s.remoteControl,
   }),
   merge: (persisted, current) => {
     const saved = (persisted ?? {}) as Partial<State>;
@@ -815,17 +869,41 @@ export const useApp = create<State>()(persist((set, get) => {
       ...current,
       ...saved,
       profile: defaultProfile,
+      theme: ["dark-violet", "light", "yellow-black", "system"].includes(saved.theme ?? "") ? saved.theme! : current.theme,
+      language: ["tr", "en", "de", "fr"].includes(saved.language ?? "") ? saved.language! : current.language,
+      autoTranslate: typeof saved.autoTranslate === "boolean" ? saved.autoTranslate : false,
+      tutorialDone: typeof saved.tutorialDone === "boolean" ? saved.tutorialDone : false,
       pinnedMessageIds: Array.isArray(saved.pinnedMessageIds) ? saved.pinnedMessageIds : [],
       mutedChannelIds: Array.isArray(saved.mutedChannelIds) ? saved.mutedChannelIds : [],
-      notificationPrefs: { ...current.notificationPrefs, ...(saved.notificationPrefs ?? {}) },
+      notificationPrefs: { ...current.notificationPrefs, desktop: true, ...(saved.notificationPrefs ?? {}) },
+      remoteControl: { ...current.remoteControl, ...(saved.remoteControl ?? {}) },
     };
   },
 }));
 
 if (typeof document !== "undefined") {
   const applyUiScale = (value: number) => document.documentElement.style.setProperty("--ui-scale", String(value));
-  applyUiScale(useApp.getState().uiScale);
+  const applyTheme = (theme: Theme) => {
+    const root = document.documentElement;
+    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const resolved = theme === "system" ? (systemDark ? "dark-violet" : "light") : theme;
+    root.dataset.theme = resolved;
+    root.classList.toggle("dark", resolved !== "light");
+    root.style.colorScheme = resolved === "light" ? "light" : "dark";
+  };
+  const applyLanguage = (language: Language) => {
+    document.documentElement.lang = language;
+  };
+  const initial = useApp.getState();
+  applyUiScale(initial.uiScale);
+  applyTheme(initial.theme);
+  applyLanguage(initial.language);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (useApp.getState().theme === "system") applyTheme("system");
+  });
   useApp.subscribe((state, previous) => {
     if (state.uiScale !== previous.uiScale) applyUiScale(state.uiScale);
+    if (state.theme !== previous.theme) applyTheme(state.theme);
+    if (state.language !== previous.language) applyLanguage(state.language);
   });
 }

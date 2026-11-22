@@ -1,12 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "./db.js";
+import { env } from "./env.js";
 import { clearUnread, getPresence, getUnread, redis } from "./redis.js";
-import { getSessionUser, publicUser, tokenFromRequest } from "./auth.js";
+import { SESSION_COOKIE, destroyAllSessions, getSessionUser, publicUser, tokenFromRequest } from "./auth.js";
 import { canAccessChannel, createVoiceToken } from "./livekit.js";
-import { channelRecipientIds, emitMessage, emitReaction, incrementUnreadForMessage } from "./socket.js";
-import { maybeSunlopReply } from "./bot.js";
+import { channelRecipientIds, emitMessage, emitReaction, incrementUnreadForMessage, syncPresence } from "./socket.js";
+import { authenticator } from "otplib";
+import { askGroq, maybeSunlopReply, translateText } from "./bot.js";
 import { userBadges } from "./badges.js";
 import { attachmentsSchema } from "./attachments.js";
 import {
@@ -28,7 +30,7 @@ const httpMediaUrl = z.string().max(2048).refine((value) => {
 const dataMediaUrl = (maxChars: number) => z.string().min(1).max(maxChars)
   .regex(/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/);
 
-const mediaUrl = (maxChars: number) => z.union([httpMediaUrl, dataMediaUrl(maxChars)]).optional().nullable();
+export const mediaUrl = (maxChars: number) => z.union([httpMediaUrl, dataMediaUrl(maxChars)]).optional().nullable();
 
 function isUniqueViolation(error: unknown) {
   const detail = error as { code?: unknown; cause?: { code?: unknown } } | null;
@@ -40,7 +42,7 @@ function isUniqueViolation(error: unknown) {
 }
 
 function formatTime(date: Date) {
-  return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" });
 }
 
 function relativeTime(date: Date) {
@@ -60,9 +62,9 @@ function requireAuth(request: FastifyRequest) {
 }
 
 async function userServers(userId: string) {
-  const owned = await db.select({ id: servers.id, name: servers.name, color: servers.color, ownerId: servers.ownerId })
+  const owned = await db.select({ id: servers.id, name: servers.name, color: servers.color, iconUrl: servers.iconUrl, ownerId: servers.ownerId })
     .from(servers).where(eq(servers.ownerId, userId));
-  const joined = await db.select({ id: servers.id, name: servers.name, color: servers.color, ownerId: servers.ownerId })
+  const joined = await db.select({ id: servers.id, name: servers.name, color: servers.color, iconUrl: servers.iconUrl, ownerId: servers.ownerId })
     .from(servers)
     .innerJoin(serverMembers, eq(serverMembers.serverId, servers.id))
     .where(eq(serverMembers.userId, userId));
@@ -101,6 +103,7 @@ async function mapMessages(channelId: string, viewerId: string) {
     .limit(200);
   return rows.reverse().map(({ message, author }) => ({
     id: message.id,
+    authorId: author.id,
     author: author.username,
     color: author.avatarColor,
     time: formatTime(message.createdAt),
@@ -226,6 +229,10 @@ export function registerRoutes(app: FastifyInstance) {
         status: status as "online" | "idle" | "dnd" | "offline",
         activity: row.activity || undefined,
         color: row.avatarColor,
+        avatarUrl: row.avatarUrl || undefined,
+        bio: row.bio || undefined,
+        tag: row.tag,
+        bannerUrl: row.bannerUrl || undefined,
         role,
         bot: Boolean(row.bot),
         badges: userBadges(row.createdAt, row.username, row.tag),
@@ -281,6 +288,11 @@ export function registerRoutes(app: FastifyInstance) {
       bannerUrl: mediaUrl(3_000_000),
       activity: z.string().max(120).optional(),
       status: z.enum(["online", "idle", "dnd", "offline"]).optional(),
+      youtubeUrl: z.string().url().max(300).or(z.literal("")).optional(),
+      spotifyUrl: z.string().url().max(300).or(z.literal("")).optional(),
+      steamUrl: z.string().url().max(300).or(z.literal("")).optional(),
+      robloxUrl: z.string().url().max(300).or(z.literal("")).optional(),
+      appleMusicUrl: z.string().url().max(300).or(z.literal("")).optional(),
     }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
     const patch: Record<string, unknown> = {};
@@ -300,8 +312,14 @@ export function registerRoutes(app: FastifyInstance) {
     if (parsed.data.bannerUrl !== undefined) patch.bannerUrl = parsed.data.bannerUrl ?? "";
     if (parsed.data.activity !== undefined) patch.activity = parsed.data.activity;
     if (parsed.data.status !== undefined) patch.status = parsed.data.status;
+    if (parsed.data.youtubeUrl !== undefined) patch.youtubeUrl = parsed.data.youtubeUrl;
+    if (parsed.data.spotifyUrl !== undefined) patch.spotifyUrl = parsed.data.spotifyUrl;
+    if (parsed.data.steamUrl !== undefined) patch.steamUrl = parsed.data.steamUrl;
+    if (parsed.data.robloxUrl !== undefined) patch.robloxUrl = parsed.data.robloxUrl;
+    if (parsed.data.appleMusicUrl !== undefined) patch.appleMusicUrl = parsed.data.appleMusicUrl;
     try {
       const [updated] = await db.update(users).set(patch).where(eq(users.id, user.id)).returning();
+      if (parsed.data.status !== undefined) void syncPresence(user.id);
       return publicUser(updated);
     } catch (error) {
       if (parsed.data.name !== undefined && isUniqueViolation(error)) {
@@ -309,6 +327,157 @@ export function registerRoutes(app: FastifyInstance) {
       }
       throw error;
     }
+  });
+
+  app.get("/me/ai", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const [row] = await db.select({ groqApiKey: users.groqApiKey }).from(users).where(eq(users.id, user.id)).limit(1);
+    return { configured: Boolean(row?.groqApiKey || env.GROQ_API_KEY), custom: Boolean(row?.groqApiKey), model: env.GROQ_MODEL };
+  });
+
+  app.patch("/me/ai", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ groqApiKey: z.string().max(200).nullable().optional() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    await db.update(users).set({ groqApiKey: parsed.data.groqApiKey?.trim() || "" }).where(eq(users.id, user.id));
+    return { ok: true, configured: Boolean(parsed.data.groqApiKey?.trim() || env.GROQ_API_KEY) };
+  });
+
+  app.post("/ai/ask", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ question: z.string().min(1).max(2000) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    return askGroq(user.id, parsed.data.question);
+  });
+
+  app.post("/me/2fa/setup", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const secret = authenticator.generateSecret();
+    await db.update(users).set({ totpSecret: secret, totpEnabled: 0 }).where(eq(users.id, user.id));
+    const otpauth = authenticator.keyuri(user.email, "SlopSound", secret);
+    return { secret, otpauth };
+  });
+
+  app.post("/me/2fa/enable", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ code: z.string().min(6).max(8) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    const [row] = await db.select({ totpSecret: users.totpSecret }).from(users).where(eq(users.id, user.id)).limit(1);
+    if (!row?.totpSecret || !authenticator.check(parsed.data.code.trim(), row.totpSecret)) {
+      return reply.code(400).send({ error: "invalid_totp" });
+    }
+    await db.update(users).set({ totpEnabled: 1 }).where(eq(users.id, user.id));
+    return { ok: true };
+  });
+
+  app.post("/me/2fa/disable", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ code: z.string().min(6).max(8) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    const [row] = await db.select({ totpSecret: users.totpSecret, totpEnabled: users.totpEnabled }).from(users).where(eq(users.id, user.id)).limit(1);
+    if (!row?.totpEnabled) return { ok: true };
+    if (!row.totpSecret || !authenticator.check(parsed.data.code.trim(), row.totpSecret)) {
+      return reply.code(400).send({ error: "invalid_totp" });
+    }
+    await db.update(users).set({ totpEnabled: 0, totpSecret: "" }).where(eq(users.id, user.id));
+    return { ok: true };
+  });
+
+  app.post("/me/disable", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    await db.update(users).set({ status: "offline", customStatus: "Hesap devre dışı", totpEnabled: 0, totpSecret: "" }).where(eq(users.id, user.id));
+    await destroyAllSessions(user.id);
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true };
+  });
+
+  app.delete("/me", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    await destroyAllSessions(user.id);
+    await db.delete(users).where(eq(users.id, user.id));
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true };
+  });
+
+  app.post("/ai/translate", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ text: z.string().min(1).max(4000), targetLanguage: z.string().min(2).max(40) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    return translateText(user.id, parsed.data.text, parsed.data.targetLanguage);
+  });
+
+  app.get("/discover/servers", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const rows = await db.select({
+      id: servers.id, name: servers.name, color: servers.color, iconUrl: servers.iconUrl, isPublic: servers.isPublic,
+      memberCount: sql<number>`count(${serverMembers.id})::int`,
+    }).from(servers)
+      .leftJoin(serverMembers, eq(serverMembers.serverId, servers.id))
+      .where(eq(servers.isPublic, 1))
+      .groupBy(servers.id)
+      .orderBy(desc(sql`count(${serverMembers.id})`))
+      .limit(30);
+    const joined = await db.select({ serverId: serverMembers.serverId }).from(serverMembers).where(eq(serverMembers.userId, user.id));
+    const joinedSet = new Set(joined.map((row) => row.serverId));
+    return rows.map((row) => ({ ...row, joined: joinedSet.has(row.id) }));
+  });
+
+  app.post("/discover/servers/:id/join", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const { id } = request.params as { id: string };
+    if (!uuid.safeParse(id).success) return reply.code(400).send({ error: "invalid_id" });
+    const [server] = await db.select().from(servers).where(eq(servers.id, id)).limit(1);
+    if (!server || !server.isPublic) return reply.code(404).send({ error: "server_not_found" });
+    await db.insert(serverMembers).values({ serverId: id, userId: user.id, role: "member" }).onConflictDoNothing();
+    return { ok: true, serverId: id };
+  });
+
+  app.get("/users/:id", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const { id } = request.params as { id: string };
+    if (!uuid.safeParse(id).success) return reply.code(400).send({ error: "invalid_id" });
+    const [peer] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    if (!peer) return reply.code(404).send({ error: "user_not_found" });
+    const mutual = await mutualServerCount(user.id, peer.id);
+    if (peer.id !== user.id && mutual === 0) {
+      const [friend] = await db.select({ id: friends.id }).from(friends)
+        .where(and(
+          or(eq(friends.requesterId, user.id), eq(friends.addresseeId, user.id)),
+          or(eq(friends.requesterId, peer.id), eq(friends.addresseeId, peer.id)),
+          eq(friends.status, "accepted"),
+        ))
+        .limit(1);
+      if (!friend) return reply.code(403).send({ error: "no_shared_server" });
+    }
+    return {
+      id: peer.id,
+      name: peer.username,
+      displayName: peer.displayName || peer.username,
+      tag: peer.tag,
+      title: peer.title,
+      customStatus: peer.customStatus,
+      bio: peer.bio,
+      color: peer.avatarColor,
+      avatarUrl: peer.avatarUrl || undefined,
+      bannerUrl: peer.bannerUrl || undefined,
+      activity: peer.activity || undefined,
+      status: peer.status,
+      bot: Boolean(peer.bot),
+      badges: userBadges(peer.createdAt, peer.username, peer.tag),
+      mutual,
+    };
   });
 
   app.post("/channels", async (request, reply) => {
@@ -475,6 +644,22 @@ export function registerRoutes(app: FastifyInstance) {
     const [requester] = await db.select().from(users).where(eq(users.id, updated.requesterId)).limit(1);
     const channelId = await ensureDM(user.id, updated.requesterId);
     return { ok: true, username: requester?.username ?? "", channelId };
+  });
+
+  app.get("/rtc-config", async (request, reply) => {
+    const user = await requireAuth(request);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
+    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [];
+    if (env.RTC_STUN_URL.trim()) iceServers.push({ urls: env.RTC_STUN_URL.trim() });
+    const turnUrls = [...new Set(env.TURN_URL.split(",").map((value) => value.trim()).filter(Boolean).flatMap((url) => {
+      if (url.includes("?transport=")) return [url];
+      const separator = url.includes("?") ? "&" : "?";
+      return [`${url}${separator}transport=udp`, `${url}${separator}transport=tcp`];
+    }))];
+    if (turnUrls.length && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
+      iceServers.push({ urls: turnUrls, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL });
+    }
+    return { iceServers };
   });
 
   app.post("/livekit/token", async (request, reply) => {

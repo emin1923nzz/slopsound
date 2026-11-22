@@ -133,19 +133,21 @@ export const DialogContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-[150] bg-black/65 backdrop-blur-sm data-[state=open]:animate-fade-up" />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "glass fixed left-1/2 top-1/2 z-[151] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-panel p-7 shadow-float animate-scale-in focus:outline-none",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      <DialogPrimitive.Close className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-full text-muted transition hover:bg-white/10 hover:text-paper">
-        <X size={16} />
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
+    <div className="pointer-events-none fixed inset-0 z-[151] grid place-items-center p-4">
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          "glass pointer-events-auto w-[min(520px,92vw)] rounded-panel p-7 shadow-float animate-scale-in focus:outline-none",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        <DialogPrimitive.Close className="absolute right-5 top-5 grid h-8 w-8 place-items-center rounded-full text-muted transition hover:bg-white/10 hover:text-paper">
+          <X size={16} />
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </div>
   </DialogPrimitive.Portal>
 ));
 DialogContent.displayName = "DialogContent";

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { api } from "@/lib/api";
 import { startCall } from "@/lib/callStore";
 import type { Attachment, Message } from "@/lib/data";
 import { formatDuration, useAudio } from "@/lib/audio";
@@ -414,6 +415,8 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
   const setReplyTo = useApp((s) => s.setReplyTo);
   const deleteMessage = useApp((s) => s.deleteMessage);
   const togglePin = useApp((s) => s.togglePin);
+  const openProfile = useApp((s) => s.openProfile);
+  const members = useApp((s) => s.members);
   const pinned = useApp((s) => s.pinnedMessageIds.includes(message.id));
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -422,6 +425,25 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
   const hasAudioAttachment = Boolean(message.attachments?.some((attachment) => attachment.kind === "audio"));
   const quoteLines = message.text.split("\n").filter((line) => line.startsWith("> "));
   const bodyText = message.text.split("\n").filter((line) => !line.startsWith("> ")).join("\n").trim();
+  const autoTranslate = useApp((s) => s.autoTranslate);
+  const language = useApp((s) => s.language);
+  const [translated, setTranslated] = useState("");
+  useEffect(() => {
+    let active = true;
+    setTranslated("");
+    if (!autoTranslate || language === "tr" || message.own || !bodyText) return;
+    const names: Record<string, string> = { en: "English", de: "German", fr: "French" };
+    const timer = window.setTimeout(() => {
+      api.translateText(bodyText, names[language] ?? "English")
+        .then((result) => { if (active && result.translation !== bodyText) setTranslated(result.translation); })
+        .catch(() => undefined);
+    }, 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [autoTranslate, language, bodyText, message.own]);
+  function showProfile() {
+    const id = message.authorId || members.find((member) => member.name === message.author)?.id;
+    if (id) openProfile(id);
+  }
   const drag = useRef({ active: false, startX: 0, startY: 0, moved: false, x: 0 });
   const longPress = useRef<number | undefined>(undefined);
 
@@ -484,7 +506,7 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
 
   return (
     <div className="msg group flex gap-3" data-mention={message.mention}>
-      <SlopAvatar name={message.author} src={message.avatarUrl} size={36} className="mt-0.5" />
+      <SlopAvatar name={message.author} src={message.avatarUrl} size={36} className="mt-0.5" onClick={showProfile} />
       <div className="min-w-0 flex-1">
         {menuOpen && <div className="context-backdrop active" onClick={() => setMenuOpen(false)} />}
         <div className={cn("message-wrapper", menuOpen && "message-focused")}>
@@ -514,17 +536,18 @@ const MessageRow = memo(function MessageRow({ message, onOpenMedia, onForward }:
               onPointerCancel={onPointerUp}
             >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-display text-[12.5px] font-extrabold" style={{ color: message.color }}>{message.author}</span>
-              {message.ai && <span className="rounded-full bg-brand/20 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-brand">AI</span>}
+              <button type="button" onClick={showProfile} className="font-display text-[0.78125rem] font-extrabold tracking-normal hover:underline" style={{ color: message.color }}>{message.author}</button>
+              {message.ai && <span className="rounded-full bg-brand/20 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-brand">AI</span>}
               <BadgeChips badges={message.badges} compact />
               <span className="text-[10px] text-muted/70">{message.time}</span>
             </div>
             {quoteLines.length > 0 && (
               <div className="reply-quote mt-1 border-l-2 border-brand/60 pl-2 text-[11px] text-muted">
-                {quoteLines.map((line, index) => <p key={index} className="truncate">{line.slice(2)}</p>)}
+                {quoteLines.map((line, index) => <p key={index} className="line-clamp-2 whitespace-pre-wrap break-words">{line.slice(2)}</p>)}
               </div>
             )}
-            <p className={cn("mt-0.5 text-[13px] leading-relaxed text-paper/85", message.ai && "text-paper")}>{bodyText}</p>
+            <p className={cn("mt-0.5 text-[0.8125rem] leading-relaxed text-paper", message.ai && "text-paper")}>{bodyText}</p>
+            {translated && <p className="mt-1 text-[11px] italic leading-relaxed text-muted">↳ {translated}</p>}
             {message.attachments?.map((attachment, index) => {
               if (attachment.kind === "image") {
                 return (

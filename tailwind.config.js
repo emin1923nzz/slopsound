@@ -8,6 +8,9 @@ export default {
         display: ["-apple-system", "BlinkMacSystemFont", "SF Pro Display", "Bricolage Grotesque Variable", "sans-serif"],
         sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Text", "DM Sans Variable", "Segoe UI", "sans-serif"],
       },
+      fontWeight: {
+        black: "800",
+      },
       colors: {
         ink: "hsl(var(--ink) / <alpha-value>)",
         surface: "hsl(var(--surface) / <alpha-value>)",

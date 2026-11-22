@@ -79,7 +79,7 @@ export function onTyping(handler: (payload: { user: string; channelId: string })
   return () => socket?.off("typing", handler);
 }
 
-export function onPresence(handler: (payload: { userId: string; status: string }) => void) {
+export function onPresence(handler: (payload: { userId: string; status: string; activity?: string }) => void) {
   socket?.on("presence:update", handler);
   return () => socket?.off("presence:update", handler);
 }

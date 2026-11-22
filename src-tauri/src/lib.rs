@@ -47,7 +47,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
-            let _main_window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let main_window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("SlopSound")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
@@ -66,6 +66,9 @@ pub fn run() {
                     false
                 })
                 .on_new_window(|url, _features| {
+                    if is_app_origin(&url) || url.scheme() == "about" {
+                        return NewWindowResponse::Allow;
+                    }
                     match url.scheme() {
                         "http" | "https" | "mailto" | "tel" => {
                             let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
@@ -79,7 +82,7 @@ pub fn run() {
 
             #[cfg(windows)]
             {
-                let _ = _main_window.with_webview(|webview| unsafe {
+                let _ = main_window.with_webview(|webview| unsafe {
                     if let Ok(core) = webview.controller().CoreWebView2() {
                         if let Ok(settings) = core.Settings() {
                             let _ = settings.SetAreDefaultContextMenusEnabled(false);
@@ -87,6 +90,14 @@ pub fn run() {
                     }
                 });
             }
+
+            let window_for_close = main_window.clone();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_for_close.hide();
+                }
+            });
 
             let show = MenuItem::new(app, "SlopSound'u Göster", true, None::<&str>)?;
             let quit = MenuItem::new(app, "Çık", true, None::<&str>)?;

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Minus, Square, X, Wifi, WifiOff, Download, Settings2, UserPlus, Rocket } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+/* updater handled by useAutoUpdate + manual event */
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
 import { cn, isTauri } from "@/lib/utils";
@@ -40,26 +39,11 @@ export function Titlebar() {
 
   const issue = health && (!health.ok || health.maintenance) ? (health.maintenance ? "maintenance" : "offline") : null;
 
-  async function checkUpdates() {
-    if (!isTauri()) {
-      toast.info("Güncelleme kontrolü sadece masaüstü sürümde çalışır");
-      return;
-    }
+  function checkUpdates() {
+    if (!isTauri()) { toast.info("Güncelleme kontrolü sadece masaüstü sürümde çalışır"); return; }
     setChecking(true);
-    try {
-      const update = await check();
-      if (update) {
-        toast("Yeni sürüm bulundu", { description: `v${update.version} indiriliyor…` });
-        await update.downloadAndInstall();
-        await relaunch();
-      } else {
-        toast.success("Güncelsin", { description: "En yeni SlopSound sürümünü kullanıyorsun." });
-      }
-    } catch {
-      toast.error("Güncelleme kontrolü başarısız");
-    } finally {
-      setChecking(false);
-    }
+    window.dispatchEvent(new CustomEvent("slopsound:check-update"));
+    window.setTimeout(() => setChecking(false), 1200);
   }
 
   return (

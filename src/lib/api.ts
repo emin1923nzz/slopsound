@@ -1,4 +1,4 @@
-import type { Attachment, AuthUser, Bootstrap, Message } from "./data";
+import type { Attachment, AuthUser, Bootstrap, Message, UserProfile } from "./data";
 import { API_BASE } from "./config";
 
 export class ApiError extends Error {
@@ -30,9 +30,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<AuthUser>("/auth/me"),
-  login: (email: string, password: string) => request<{ ok: boolean }>("/auth/login", {
-    method: "POST", body: JSON.stringify({ email, password }),
+  login: (email: string, password: string, totp?: string) => request<{ ok: boolean }>("/auth/login", {
+    method: "POST", body: JSON.stringify({ email, password, ...(totp ? { totp } : {}) }),
   }),
+  setup2fa: () => request<{ secret: string; otpauth: string }>("/me/2fa/setup", { method: "POST" }),
+  enable2fa: (code: string) => request<{ ok: boolean }>("/me/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  disable2fa: (code: string) => request<{ ok: boolean }>("/me/2fa/disable", { method: "POST", body: JSON.stringify({ code }) }),
+  disableAccount: () => request<{ ok: boolean }>("/me/disable", { method: "POST" }),
+  deleteAccount: () => request<{ ok: boolean }>("/me", { method: "DELETE" }),
   register: (email: string, username: string, password: string) => request<{ ok: boolean }>("/auth/register", {
     method: "POST", body: JSON.stringify({ email, username, password }),
   }),
@@ -42,6 +47,17 @@ export const api = {
   }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   bootstrap: () => request<Bootstrap>("/bootstrap"),
+  getUser: (id: string) => request<UserProfile>(`/users/${encodeURIComponent(id)}`),
+  aiStatus: () => request<{ configured: boolean; custom: boolean; model: string }>("/me/ai"),
+  setAiKey: (groqApiKey: string | null) => request<{ ok: boolean; configured: boolean }>("/me/ai", {
+    method: "PATCH", body: JSON.stringify({ groqApiKey }),
+  }),
+  askAi: (question: string) => request<{ answer: string; source: "groq" | "fallback" }>("/ai/ask", {
+    method: "POST", body: JSON.stringify({ question }),
+  }),
+  translateText: (text: string, targetLanguage: string) => request<{ translation: string; source: "groq" | "fallback" }>("/ai/translate", {
+    method: "POST", body: JSON.stringify({ text, targetLanguage }),
+  }),
   updateProfile: (patch: Record<string, unknown>) => request<AuthUser>("/me/profile", {
     method: "PATCH", body: JSON.stringify(patch),
   }),
@@ -69,11 +85,17 @@ export const api = {
     method: "POST", body: JSON.stringify({ username }),
   }),
   acceptFriend: (id: string) => request<{ ok: boolean; username: string; channelId: string }>(`/friends/${id}/accept`, { method: "POST" }),
+  rtcConfig: () => request<{ iceServers: RTCIceServer[] }>("/rtc-config"),
   liveKitToken: (channelId: string) => request<{ url: string; token: string; room: string }>("/livekit/token", {
     method: "POST", body: JSON.stringify({ channelId }),
   }),
-  createServer: (name: string) => request<{ id: string; name: string }>("/servers", {
-    method: "POST", body: JSON.stringify({ name }),
+  discoverServers: () => request<Array<{ id: string; name: string; color: string; iconUrl: string; memberCount: number; joined: boolean }>>("/discover/servers"),
+  joinDiscoverServer: (id: string) => request<{ ok: boolean; serverId: string }>(`/discover/servers/${id}/join`, { method: "POST" }),
+  createServer: (name: string, iconUrl?: string, isPublic?: boolean) => request<{ id: string; name: string; iconUrl?: string }>("/servers", {
+    method: "POST", body: JSON.stringify({ name, ...(iconUrl ? { iconUrl } : {}), ...(isPublic !== undefined ? { isPublic } : {}) }),
+  }),
+  updateServer: (id: string, patch: { isPublic?: boolean; name?: string }) => request<{ id: string }>(`/servers/${id}`, {
+    method: "PATCH", body: JSON.stringify(patch),
   }),
   createChannel: (serverId: string, name: string, type: "text" | "voice" | "announcement", groupLabel: string) =>
     request<{ id: string }>("/channels", {

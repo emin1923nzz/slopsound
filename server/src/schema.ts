@@ -8,6 +8,14 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull().default(""),
   passwordHash: text("password_hash"),
   googleSub: text("google_sub"),
+  groqApiKey: text("groq_api_key").notNull().default(""),
+  totpSecret: text("totp_secret").notNull().default(""),
+  totpEnabled: integer("totp_enabled").notNull().default(0),
+  youtubeUrl: text("youtube_url").notNull().default(""),
+  spotifyUrl: text("spotify_url").notNull().default(""),
+  steamUrl: text("steam_url").notNull().default(""),
+  robloxUrl: text("roblox_url").notNull().default(""),
+  appleMusicUrl: text("apple_music_url").notNull().default(""),
   avatarColor: text("avatar_color").notNull().default("#8B6CFF"),
   tag: text("tag").notNull().default("0000"),
   title: text("title").notNull().default(""),
@@ -32,8 +40,10 @@ export const sessions = pgTable("sessions", {
 export const servers = pgTable("servers", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  color: text("color").notNull().default("brand"),
-  ownerId: uuid("owner_id").notNull().references(() => users.id),
+  color: text("color").notNull().default("#8B6CFF"),
+  iconUrl: text("icon_url").notNull().default(""),
+  isPublic: integer("is_public").notNull().default(0),
+  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -75,7 +75,7 @@ export function Landing() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6 }}>
           <span className="inline-flex items-center gap-2 rounded-full border border-lime/25 bg-lime/[.08] px-3 py-1.5 text-[10px] font-black tracking-wider text-lime"><Sparkles size={11} /> Sade, hızlı, kendi kimliğinle</span>
           <h1 className="mt-5 font-display text-[52px] font-extrabold leading-[1.05] tracking-[-.04em] max-sm:text-[36px]">Konuş, oyna,<br /><span className="text-brand">takıl.</span> Hepsi burada.</h1>
-          <p className="mt-5 max-w-lg text-[16px] leading-relaxed text-muted">SlopSound, Discord'a benzeyen ama onun kopyası olmayan, sade ve hızlı bir sohbet uygulaması. Sunucular, DM, ses odaları ve Sunlop asistanı tek yerde.</p>
+          <p className="mt-5 max-w-lg text-[16px] leading-relaxed text-muted">SlopSound, kendi tasarımı olan sade ve hızlı bir sohbet uygulaması. Sunucular, DM, ses odaları ve Sloppi tek yerde.</p>
           <div className="mt-7 flex flex-wrap gap-3"><Button size="lg" onClick={() => setView("app")}>Hemen Başla <ArrowRight size={16} /></Button><Button size="lg" variant="outline" onClick={() => document.getElementById("uygulama")?.scrollIntoView({ behavior: "smooth" })}>Uygulamaya Bak</Button></div>
           <p className="mt-3 text-[11px] text-muted">Ücretsiz • Kredi kartı istemez • Kolay kurulum</p>
         </motion.div>
@@ -146,7 +146,7 @@ export function Landing() {
         <div className="mt-6 max-w-2xl">
           <Accordion type="single" collapsible>
             {[
-              ["SlopSound Discord mu?", "Hayır. Benzer şeyler yapar ama kendi tasarımı, kendi kimliği ve kendi asistanı var."],
+              ["SlopSound bağımsız mı?", "Evet. Kendi tasarımı, kendi kimliği ve kendi asistanı olan bağımsız bir uygulama."],
               ["Arkadaşımı nasıl eklerim?", "Arkadaş Ekle ekranından kullanıcı adıyla aratabilir veya davet linki gönderebilirsin."],
               ["Sloppi kim?", "Mor, yuvarlak, neşeli maskotumuz. Sohbette kaybolursan yol gösterir. Tıkla, konuşsun."],
               ["Sunlop ne yapar?", "Sol altta duran AI asistanın. Mesaj yazarsan cevap verir, ayarları hatırlatır."],

@@ -4,7 +4,7 @@ import { env } from "./env.js";
 import { db } from "./db.js";
 import { redis } from "./redis.js";
 import { users } from "./schema.js";
-import { createSession, publicUser, type SessionUser } from "./auth.js";
+import { createSession, publicUser, randomAvatarColor, type SessionUser } from "./auth.js";
 
 type OAuthMode = "desktop" | "web";
 type StatePayload = { redirectUri: string; mode: OAuthMode };
@@ -13,7 +13,6 @@ type GoogleProfile = {
   email: string;
   email_verified?: boolean;
   name?: string;
-  picture?: string;
 };
 
 const STATE_TTL = 600;
@@ -74,7 +73,7 @@ async function upsertGoogleUser(profile: GoogleProfile) {
   if (existing) {
     const [updated] = await db.update(users).set({
       googleSub: profile.sub,
-      ...(profile.picture && !existing.avatarUrl ? { avatarUrl: profile.picture } : {}),
+      ...(existing.avatarColor === "#8B6CFF" ? { avatarColor: randomAvatarColor() } : {}),
     }).where(eq(users.id, existing.id)).returning();
     return updated;
   }
@@ -83,7 +82,7 @@ async function upsertGoogleUser(profile: GoogleProfile) {
     username: await uniqueUsername(profile.name ?? profile.email.split("@")[0] ?? "slopsounder"),
     googleSub: profile.sub,
     passwordHash: null,
-    avatarUrl: profile.picture ?? "",
+    avatarColor: randomAvatarColor(),
     tag: randomBytes(2).toString("hex").toUpperCase().slice(0, 4),
     customStatus: "Google ile giriş yaptı",
   }).returning();

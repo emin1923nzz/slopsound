@@ -74,8 +74,18 @@ export async function convertToMp4(input: string, output: string) {
 }
 
 export async function notify(title: string, body: string) {
-  if (!isTauri()) return;
-  await sendNotification({ title, body });
+  if (!isTauri()) {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification(title, { body });
+    return;
+  }
+  try {
+    const { isPermissionGranted, requestPermission } = await import("@tauri-apps/plugin-notification");
+    let granted = await isPermissionGranted();
+    if (!granted) granted = (await requestPermission()) === "granted";
+    if (granted) await sendNotification({ title, body });
+  } catch {
+    try { await sendNotification({ title, body }); } catch { /* ignore */ }
+  }
 }
 
 export async function setAutostart(enabled: boolean) {

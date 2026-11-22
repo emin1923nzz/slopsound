@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "./db.js";
 import { channelMembers, channels, messages, serverMembers, servers, users } from "./schema.js";
 import { getSessionUser, SESSION_COOKIE } from "./auth.js";
-import { incrementUnread, rateLimit, redis } from "./redis.js";
+import { incrementUnread, rateLimit, redis, setPresence } from "./redis.js";
 import { canAccessChannel } from "./livekit.js";
 import { maybeSunlopReply } from "./bot.js";
 import { userBadges } from "./badges.js";
@@ -27,10 +27,18 @@ function cookieValue(header: string | undefined, name: string) {
 }
 
 function formatTime(date: Date) {
-  return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" });
 }
 
 let io: Server | null = null;
+
+export async function syncPresence(userId: string) {
+  const [user] = await db.select({ status: users.status, activity: users.activity }).from(users).where(eq(users.id, userId)).limit(1);
+  const status = user?.status ?? "online";
+  const activity = user?.activity ?? "";
+  await setPresence(userId, status);
+  io?.emit("presence:update", { userId, status, activity });
+}
 
 export function emitMessage(channelId: string, message: unknown, authorId?: string) {
   if (!io) return;
@@ -101,11 +109,10 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
     const user = socket.data.user as { id: string; username: string; avatarColor: string; avatarUrl: string; bot: boolean };
     void socket.join(`user:${user.id}`);
     registerCallHandlers(server, socket, user);
-    void redis.set(`presence:${user.id}`, "online", "EX", 90);
-    socket.broadcast.emit("presence:update", { userId: user.id, status: "online" });
+    void syncPresence(user.id);
 
     socket.on("presence:heartbeat", () => {
-      void redis.set(`presence:${user.id}`, "online", "EX", 90);
+      void syncPresence(user.id);
     });
 
     socket.on("channel:join", async (channelId: string) => {
@@ -134,6 +141,7 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
       const [author] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
       const message = {
         id: row.id,
+        authorId: user.id,
         author: author?.username ?? user.username,
         color: author?.avatarColor ?? user.avatarColor,
         time: formatTime(row.createdAt),
@@ -161,7 +169,7 @@ export function createSocketServer(httpServer: HttpServer, origin: string | stri
 
     socket.on("disconnect", () => {
       void redis.set(`presence:${user.id}`, "offline", "EX", 3600);
-      socket.broadcast.emit("presence:update", { userId: user.id, status: "offline" });
+      socket.broadcast.emit("presence:update", { userId: user.id, status: "offline", activity: "" });
     });
   });
 

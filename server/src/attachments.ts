@@ -16,6 +16,7 @@ const BLOCKED_EXTENSIONS = new Set([
 function isAllowedMime(mime: string): boolean {
   if (BLOCKED_MIMES.has(mime)) return false;
   if (MEDIA_MIMES.has(mime) || mime === "application/octet-stream") return true;
+  if (mime.startsWith("audio/") || mime.startsWith("video/")) return true;
   return mime.startsWith("application/") || mime.startsWith("text/");
 }
 

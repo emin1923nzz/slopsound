@@ -4,6 +4,8 @@ import { useGaze } from "@blobatar/react/gaze";
 import { MessageCircleQuestion, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
+import { api } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { useAudio } from "@/lib/audio";
 import { SlopAvatar } from "./SlopAvatar";
 import { Button, Input } from "./ui";
@@ -18,14 +20,11 @@ const suggestions = [
 export function SlopCompanion() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [source, setSource] = useState<"groq" | "fallback" | null>(null);
   const [busy, setBusy] = useState(false);
   const authenticated = useApp((s) => s.authenticated);
-  const dms = useApp((s) => s.dms);
-  const createDM = useApp((s) => s.createDM);
-  const selectDM = useApp((s) => s.selectDM);
-  const setSidebarTab = useApp((s) => s.setSidebarTab);
-  const sendMessage = useApp((s) => s.sendMessage);
-  const setView = useApp((s) => s.setView);
+  const t = useT();
   const { ref } = useGaze({ travel: 3, lookAt: "pointer" });
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -55,20 +54,16 @@ export function SlopCompanion() {
       return;
     }
     setBusy(true);
+    setAnswer("");
+    setSource(null);
     useAudio.getState().playSound("ask");
     try {
-      const existing = dms.find((dm) => dm.name.toLowerCase() === "sunlop");
-      const dmId = existing?.id ?? await createDM("Sunlop");
-      if (!dmId) throw new Error("DM açılamadı");
-      setSidebarTab("dms");
-      selectDM(dmId);
-      setView("app");
-      const sent = await sendMessage(`@Sunlop ${value}`);
-      if (!sent) throw new Error(useApp.getState().error ?? "Mesaj gönderilemedi");
+      const result = await api.askAi(value);
+      setAnswer(result.answer);
+      setSource(result.source);
       setQuestion("");
-      toast.success("Sunlop'a sordum, cevabı DM'de");
     } catch {
-      toast.error("Soru gönderilemedi");
+      toast.error("Sloppi şu an cevap veremedi");
     } finally {
       setBusy(false);
     }
@@ -92,8 +87,8 @@ export function SlopCompanion() {
             <div className="flex items-center gap-2">
               <span className="grid h-7 w-7 place-items-center rounded-[10px] bg-brand/15 text-brand"><Sparkles size={14} /></span>
               <div className="min-w-0 flex-1">
-                <p className="font-display text-[12px] font-extrabold">Sloppi'ye sor</p>
-                <p className="text-[9.5px] text-muted">Sunlop'a iletirim, dört sorunun tamamını sorabilirsin.</p>
+                <p className="font-display text-[12px] font-extrabold">{t("Sloppi'ye sor")}</p>
+                <p className="text-[9.5px] text-muted">Groq anahtarın varsa gerçek cevap verir, yoksa kendi bilgisiyle yardım eder.</p>
               </div>
               <button onClick={() => setOpen(false)} className="icon-btn h-7 w-7" aria-label="Kapat"><X size={13} /></button>
             </div>
@@ -113,7 +108,7 @@ export function SlopCompanion() {
               <Input
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
-                placeholder="Bir soru sor..."
+                placeholder={t("Bir soru sor...")}
                 aria-label="Sloppi'ye soru"
                 className="h-9 flex-1 text-[11px]"
               />
@@ -121,6 +116,15 @@ export function SlopCompanion() {
                 <Send size={13} />
               </Button>
             </form>
+            {busy && <p className="mt-3 text-[10px] text-muted">{t("Sloppi düşünüyor...")}</p>}
+            {answer && (
+              <div className="mt-3 rounded-2xl border border-brand/15 bg-brand/[.06] p-3">
+                <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-paper/90">{answer}</p>
+                {source === "fallback" && (
+                  <p className="mt-2 text-[9px] text-muted">Groq anahtarı eklenirse daha akıllı cevap verir.</p>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

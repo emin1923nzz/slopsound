@@ -13,6 +13,10 @@ export async function getPresence(userId: string) {
   return (await redis.get(`presence:${userId}`)) ?? "offline";
 }
 
+export async function setPresence(userId: string, status: string) {
+  await redis.set(`presence:${userId}`, status, "EX", 120);
+}
+
 export async function getUnread(userId: string, channelId: string) {
   return Number((await redis.get(`unread:${userId}:${channelId}`)) ?? 0);
 }

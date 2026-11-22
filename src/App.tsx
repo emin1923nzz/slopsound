@@ -3,8 +3,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Toaster, toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
-import { TooltipProvider } from "./components/ui";
+import { Dialog, DialogContent, TooltipProvider } from "./components/ui";
+import { DialogTitle } from "@radix-ui/react-dialog";
 import { useApp } from "@/lib/store";
+import { api } from "@/lib/api";
+import type { UserProfile } from "@/lib/data";
 import { useCallStore } from "@/lib/callStore";
 import { useAudio } from "@/lib/audio";
 import { useVideo } from "@/lib/video";
@@ -31,7 +34,11 @@ import { DynamicIsland } from "./components/DynamicIsland";
 import { ScreenSharePip } from "./components/ScreenSharePip";
 import { ChannelPeek } from "./components/ChannelPeek";
 import { WhatsNew } from "./components/WhatsNew";
+import { Tutorial } from "./components/Tutorial";
 import { CallOverlay } from "./components/CallOverlay";
+import { SlopAvatar } from "./components/SlopAvatar";
+import { BadgeChips } from "./components/BadgeChips";
+import { MessageCircle, AtSign, UsersRound } from "lucide-react";
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
@@ -43,6 +50,90 @@ function useMediaQuery(query: string) {
     return () => mql.removeEventListener("change", handler);
   }, [query]);
   return matches;
+}
+
+function UserProfileDialog() {
+  const selectedProfileId = useApp((s) => s.selectedProfileId);
+  const closeProfile = useApp((s) => s.closeProfile);
+  const createDM = useApp((s) => s.createDM);
+  const setView = useApp((s) => s.setView);
+  const currentUser = useApp((s) => s.user);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!selectedProfileId) {
+      setProfile(null);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    api.getUser(selectedProfileId)
+      .then((data) => { if (active) setProfile(data); })
+      .catch(() => { if (active) { setProfile(null); toast.error("Profil yüklenemedi"); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectedProfileId]);
+
+  async function openDm() {
+    if (!profile || busy) return;
+    setBusy(true);
+    const id = await createDM(profile.name);
+    setBusy(false);
+    if (!id) return toast.error(useApp.getState().error ?? "DM açılamadı");
+    closeProfile();
+    setView("app");
+  }
+
+  const statusLabel: Record<UserProfile["status"], string> = {
+    online: "Çevrimiçi", idle: "Boşta", dnd: "Rahatsız etme", offline: "Çevrimdışı",
+  };
+
+  return (
+    <Dialog open={Boolean(selectedProfileId)} onOpenChange={(open) => { if (!open) closeProfile(); }}>
+      <DialogContent className="w-[min(460px,92vw)] overflow-hidden p-0">
+        <div className="h-24 w-full" style={{ background: `linear-gradient(135deg, ${profile?.color ?? "#8B6CFF"}55, transparent)` }} />
+        <div className="relative px-6 pb-6">
+          <div className="-mt-10 mb-3">
+            <SlopAvatar
+              name={profile?.displayName ?? "..."}
+              src={profile?.avatarUrl}
+              size={76}
+              status={profile?.status}
+              showDot
+              className="ring-4 ring-surface"
+            />
+          </div>
+          <DialogTitle className="font-display text-[19px] font-extrabold">{profile?.displayName ?? (loading ? "Yükleniyor…" : "Profil")}</DialogTitle>
+          {profile && (
+            <>
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted"><AtSign size={12} /> {profile.name}#{profile.tag}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-white/[.06] px-2 py-0.5 text-[10px] font-bold text-muted">{statusLabel[profile.status]}</span>
+                {profile.title && <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-bold text-brand">{profile.title}</span>}
+                <BadgeChips badges={profile.badges} compact />
+              </div>
+              <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted"><UsersRound size={13} /> {profile.mutual} ortak sunucu</p>
+              {profile.customStatus && <p className="mt-3 text-[12px] font-semibold text-paper">{profile.customStatus}</p>}
+              <p className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted">{profile.bio || "Bu kullanıcı henüz bir bio yazmadı."}</p>
+              {profile.activity && <p className="mt-2 text-[11px] text-brand">{profile.activity}</p>}
+              {profile.id !== currentUser?.id && !profile.bot && (
+                <button
+                  type="button"
+                  onClick={() => void openDm()}
+                  disabled={busy}
+                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand px-4 py-2.5 text-[12px] font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+                >
+                  <MessageCircle size={15} /> {busy ? "Açılıyor…" : "DM aç"}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function AppView() {
@@ -170,6 +261,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof Notification !== "undefined" && !isTauri() && Notification.permission === "default") {
+      void Notification.requestPermission().catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.ctrlKey && e.key === ",") { e.preventDefault(); setView("settings"); }
       if (e.ctrlKey && e.key.toLowerCase() === "d") { e.preventDefault(); setSidebarTab("dms"); setView("app"); }
@@ -243,20 +340,27 @@ export default function App() {
             </>
           )}
           <WhatsNew />
+          <Tutorial />
+          <UserProfileDialog />
           <CallOverlay />
           <Toaster
-            position="bottom-center"
+            position="bottom-right"
             offset={view === "app" ? 84 : 24}
+            gap={10}
             theme="dark"
             toastOptions={{
+              className: "slop-toast",
               style: {
-                background: "#F4F1EA",
-                color: "#100E16",
-                border: "none",
-                borderRadius: "999px",
+                background: "linear-gradient(135deg, rgba(23,20,31,.96), rgba(40,34,58,.92))",
+                color: "hsl(var(--paper))",
+                border: "1px solid rgba(168,132,255,.28)",
+                borderRadius: "16px",
+                boxShadow: "0 18px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08)",
+                backdropFilter: "blur(18px)",
+                fontFamily: "var(--font-body)",
                 fontWeight: 700,
                 fontSize: "12px",
-                boxShadow: "0 16px 36px rgba(0,0,0,.5)",
+                padding: "12px 14px",
               },
             }}
           />

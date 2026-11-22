@@ -10,6 +10,8 @@ export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+  const [needsTotp, setNeedsTotp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const login = useApp((s) => s.login);
@@ -22,9 +24,14 @@ export function AuthScreen() {
     event.preventDefault();
     setBusy(true);
     try {
-      if (mode === "login") await login(email, password);
+      if (mode === "login") await login(email, password, needsTotp ? totp : undefined);
       else await register(email, username, password);
-    } catch { /* hata store'da */ }
+      setNeedsTotp(false);
+      setTotp("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("totp_required") || message.includes("invalid_totp")) setNeedsTotp(true);
+    }
     finally { setBusy(false); }
   }
 
@@ -80,7 +87,13 @@ export function AuthScreen() {
             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <Input aria-label="Şifre" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Şifre" className="pl-9" />
           </div>
-          {error && <p className="rounded-xl bg-danger/10 px-3 py-2 text-[11px] text-danger">{error}</p>}
+          {mode === "login" && needsTotp && (
+            <div className="relative">
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <Input aria-label="2FA kodu" inputMode="numeric" autoComplete="one-time-code" required value={totp} onChange={(e) => setTotp(e.target.value)} placeholder="Doğrulayıcı kodu" className="pl-9" />
+            </div>
+          )}
+          {error && <p className="rounded-xl bg-danger/10 px-3 py-2 text-[11px] text-danger">{error.includes("totp_required") ? "2FA kodu gerekli." : error.includes("invalid_totp") ? "2FA kodu hatalı." : error}</p>}
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? "Bağlanıyor…" : mode === "login" ? "Giriş Yap" : "Hesap Oluştur"} <ArrowRight size={14} />
           </Button>
