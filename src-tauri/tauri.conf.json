@@ -1,58 +1,73 @@
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SlopSound",
-  "version": "0.1.9",
-  "identifier": "com.slopsound.desktop",
-  "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [],
-    "security": {
-      "csp": null
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": ["nsis", "dmg", "app", "appimage", "deb"],
-    "createUpdaterArtifacts": true,
-    "icon": [
-      "icons/32x32.png",
-      "icons/64x64.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.png",
-      "icons/icon.ico",
-      "icons/icon.icns"
-    ],
-    "publisher": "FuntimeStudios",
-    "copyright": "© 2026 FuntimeStudios",
-    "category": "SocialNetworking",
-    "shortDescription": "Konuş, oyna, takıl",
-    "longDescription": "SlopSound — FuntimeStudios tarafından geliştirilen, sade ve hızlı sohbet uygulaması. Sunucular, DM, ses odaları ve Sunlop asistanı.",
-    "windows": {
-      "nsis": {
-        "installMode": "both",
-        "languages": ["turkish", "english"],
-        "displayLanguageSelector": true,
-        "compression": "lzma",
-        "headerImage": "icons/installer-header.bmp",
-        "sidebarImage": "icons/installer-sidebar.bmp",
-        "installerIcon": "icons/icon.ico",
-        "uninstallerIcon": "icons/icon.ico",
-        "startMenuFolder": "SlopSound"
-      }
-    }
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": ["https://github.com/emin1923nzz/slopsound/releases/latest/download/latest.json"],
-      "dialog": false,
-      "windows": { "installMode": "passive" },
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4MkFFQTg2MTZBQTY4NDkKUldSSmFLb1dodW9xbUZZSmNHbjZPSy9KVzhNUjZhN2RHNGJVNU5qMTJYR1hwcENTYXN2dzBxN3gK"
-    }
-  }
+﻿{
+    "$schema":  "https://schema.tauri.app/config/2",
+    "productName":  "SlopSound",
+    "version":  "0.1.9",
+    "identifier":  "com.slopsound.desktop",
+    "build":  {
+                  "beforeDevCommand":  "npm run dev",
+                  "devUrl":  "http://localhost:1420",
+                  "beforeBuildCommand":  "npm run build",
+                  "frontendDist":  "../dist"
+              },
+    "app":  {
+                "windows":  [
+
+                            ],
+                "security":  {
+                                 "csp":  null
+                             }
+            },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  [
+                                   "nsis",
+                                   "dmg",
+                                   "app",
+                                   "appimage",
+                                   "deb"
+                               ],
+                   "createUpdaterArtifacts":  true,
+                   "icon":  [
+                                "icons/32x32.png",
+                                "icons/64x64.png",
+                                "icons/128x128.png",
+                                "icons/128x128@2x.png",
+                                "icons/icon.png",
+                                "icons/icon.ico",
+                                "icons/icon.icns"
+                            ],
+                   "publisher":  "FuntimeStudios",
+                   "copyright":  "Â© 2026 FuntimeStudios",
+                   "category":  "SocialNetworking",
+                   "shortDescription":  "KonuÅŸ, oyna, takÄ±l",
+                   "longDescription":  "SlopSound â€” FuntimeStudios tarafÄ±ndan geliÅŸtirilen, sade ve hÄ±zlÄ± sohbet uygulamasÄ±. Sunucular, DM, ses odalarÄ± ve Sunlop asistanÄ±.",
+                   "windows":  {
+                                   "nsis":  {
+                                                "installMode":  "both",
+                                                "languages":  [
+                                                                  "turkish",
+                                                                  "english"
+                                                              ],
+                                                "displayLanguageSelector":  true,
+                                                "compression":  "lzma",
+                                                "headerImage":  "icons/installer-header.bmp",
+                                                "sidebarImage":  "icons/installer-sidebar.bmp",
+                                                "installerIcon":  "icons/icon.ico",
+                                                "uninstallerIcon":  "icons/icon.ico",
+                                                "startMenuFolder":  "SlopSound"
+                                            }
+                               }
+               },
+    "plugins":  {
+                    "updater":  {
+                                    "endpoints":  [
+                                                      "https://github.com/emin1923nzz/slopsound/releases/latest/download/latest.json"
+                                                  ],
+                                    "dialog":  false,
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                },
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3REQ4MDEzNjBCNjIzNkIKUldSckk3WmdFNERkeHc1UlNRSEpwYzZNQzVFemtrWEZmTS9vQW9EVklHUXluYlhXbzNVa3IvMloK"
+                                }
+                }
 }
